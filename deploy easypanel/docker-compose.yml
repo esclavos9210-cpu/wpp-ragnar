@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy easypanel/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      - BARBERLY_EMAIL=${BARBERLY_EMAIL}
+      - BARBERLY_PASSWORD=${BARBERLY_PASSWORD}
+    volumes:
+      - whatsapp_auth:/app/auth
+      - sqlite_db:/app/bot.db
+    restart: unless-stopped
+
+volumes:
+  whatsapp_auth:
+  sqlite_db:
