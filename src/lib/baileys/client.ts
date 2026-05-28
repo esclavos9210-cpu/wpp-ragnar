@@ -150,23 +150,30 @@ async function connect(): Promise<void> {
 
       // 440 = connectionReplaced — otra sesión activa, esperar 15s antes de reconectar
       const isReplaced = reason === 440;
-      const shouldReconnect =
-        reason !== DisconnectReason.loggedOut && reconnectAttempts < MAX_RECONNECT;
+      const isLoggedOut = reason === DisconnectReason.loggedOut;
 
       console.warn(`[baileys] Conexión cerrada. Razón: ${reason}`);
 
-      if (shouldReconnect) {
+      if (isLoggedOut) {
+        // Sesión cerrada desde el teléfono: borrar auth y reconectar para mostrar nuevo QR
+        console.log("[baileys] Logout detectado — borrando auth y reconectando para nuevo QR…");
+        const { rm } = await import("fs/promises");
+        try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
+        sock = null;
+        reconnectAttempts = 0;
+        setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
+        setTimeout(connect, 2_000);
+      } else if (reconnectAttempts < MAX_RECONNECT) {
         reconnectAttempts++;
         const delay = isReplaced ? 15_000 : reconnectAttempts * 3_000;
         console.log(
           `[baileys] Reconectando en ${delay / 1000}s (intento ${reconnectAttempts}/${MAX_RECONNECT})…`
         );
         setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
-        // Limpiar socket antes de reconectar
         sock = null;
         setTimeout(connect, delay);
       } else {
-        console.error("[baileys] Sesión terminada o máximo de reintentos alcanzado.");
+        console.error("[baileys] Máximo de reintentos alcanzado.");
         setConnectionState.run({ status: "disconnected", qr_data: null, phone: null });
         sock = null;
       }
