@@ -271,15 +271,17 @@ export async function forceReconnect(): Promise<void> {
   console.log("[baileys] forceReconnect: desconectando y generando nuevo QR…");
 
   if (sock) {
-    // logout() invalida la sesión en WhatsApp y dispara creds.update (saveCreds escribe el estado)
-    // Hay que esperar a que termine para que el saveCreds no restaure los archivos después de borrarlos
+    // Remover creds.update PRIMERO para que saveCreds no restaure los archivos de auth
+    // después de que los borremos (la promesa de logout() puede resolver antes de que
+    // el evento creds.update se dispare de forma asíncrona)
+    sock.ev.removeAllListeners("creds.update");
     try { await sock.logout(); } catch {}
     sock = null;
   }
 
-  // Ahora que saveCreds ya terminó, borrar auth para forzar QR nuevo
   const { rm } = await import("fs/promises");
   try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
+  console.log("[baileys] forceReconnect: auth borrado, reconectando…");
 
   reconnectAttempts = 0;
   setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
