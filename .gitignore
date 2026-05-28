@@ -1,0 +1,25 @@
+# Dependencias
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Variables de entorno (contienen secrets)
+.env.local
+.env.*.local
+
+# Datos en runtime (SQLite y sesión Baileys)
+data/
+auth/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
