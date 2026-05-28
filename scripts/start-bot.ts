@@ -5,7 +5,7 @@
  */
 import "./env-loader"; // <- carga .env.local ANTES que todo
 
-import { startBaileyClient, forceReconnect } from "../src/lib/baileys/client";
+import { startBaileyClient } from "../src/lib/baileys/client";
 import { drainOutbox } from "../src/lib/baileys/handler";
 import { getRestartRequested, setRestartRequested } from "../src/lib/db";
 
@@ -19,8 +19,8 @@ setInterval(() => {
   const row = getRestartRequested.get();
   if (row?.restart_requested) {
     setRestartRequested.run({ val: 0 });
-    console.log("[bot] Señal de reconexión recibida — generando nuevo QR…");
-    void forceReconnect();
+    console.log("[bot] Señal de reconexión — reiniciando servicio…");
+    process.exit(0); // Docker restart policy reinicia el contenedor con auth vacío → QR nuevo
   }
 }, 3_000);
 
