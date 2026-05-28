@@ -282,8 +282,10 @@ export async function getChatResponse(
             let empId: string | undefined;
             if (args.barbero) {
               const emps = await getEmployees();
+              const normalize = (s: string) =>
+                s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
               empId = emps.find((e) =>
-                e.FullName.toLowerCase().includes(args.barbero.toLowerCase())
+                normalize(e.FullName).includes(normalize(args.barbero))
               )?.Id;
             }
             const slots = await getAvailableSlots(svcMatch.Id, args.fecha, empId);
@@ -354,8 +356,10 @@ export async function getChatResponse(
             let empId: string | undefined;
             if (args.barbero) {
               const emps = await getEmployees();
+              const normalize = (s: string) =>
+                s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
               empId = emps.find((e) =>
-                e.FullName.toLowerCase().includes(args.barbero.toLowerCase())
+                normalize(e.FullName).includes(normalize(args.barbero))
               )?.Id;
             }
 
