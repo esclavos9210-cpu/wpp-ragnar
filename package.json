@@ -11,7 +11,8 @@
     "start": "next start",
     "lint": "next lint",
     "start:bot": "tsx scripts/start-bot.ts",
-    "start:all": "concurrently --kill-others --names BOT,WEB --prefix-colors yellow,cyan \"npm run start:bot\" \"npm run dev\""
+    "start:all": "concurrently --kill-others --names BOT,WEB --prefix-colors yellow,cyan \"npm run start:bot\" \"npm run dev\"",
+    "start:prod": "concurrently --kill-others --names BOT,WEB --prefix-colors yellow,cyan \"npm run start:bot\" \"npm run start\""
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.0",
