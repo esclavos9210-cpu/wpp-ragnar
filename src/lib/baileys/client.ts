@@ -94,6 +94,8 @@ export async function startBaileyClient(): Promise<void> {
 
 async function connect(): Promise<void> {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  const hasAuth = !!(state.creds?.me);
+  console.log(`[baileys] connect() iniciado. hasAuth=${hasAuth} AUTH_DIR=${AUTH_DIR}`);
   const { version } = await fetchLatestBaileysVersion();
 
   // Cache local para getMessage — necesario para descifrar mensajes de WA Business (@lid)
