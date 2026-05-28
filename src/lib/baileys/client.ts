@@ -177,9 +177,14 @@ async function connect(): Promise<void> {
         sock = null;
         setTimeout(connect, delay);
       } else {
-        console.error("[baileys] Máximo de reintentos alcanzado.");
-        setConnectionState.run({ status: "disconnected", qr_data: null, phone: null });
+        // Auth probablemente inválido — limpiar y generar nuevo QR en lugar de rendirse
+        console.warn("[baileys] Máximo de reintentos alcanzado — limpiando auth para generar QR.");
+        const { rm } = await import("fs/promises");
+        try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
         sock = null;
+        reconnectAttempts = 0;
+        setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
+        setTimeout(connect, 2_000);
       }
     }
   });
