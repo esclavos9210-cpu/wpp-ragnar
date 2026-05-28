@@ -24,6 +24,7 @@ const AUTH_DIR = path.join(process.cwd(), "auth");
 let sock: WASocket | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT = 5;
+let _manualReconnect = false;
 
 // Mapa LID → JID real (@s.whatsapp.net)
 // Se rellena desde contacts.upsert, contacts.update y messaging-history.set
@@ -154,6 +155,9 @@ async function connect(): Promise<void> {
 
       console.warn(`[baileys] Conexión cerrada. Razón: ${reason}`);
 
+      // Si hay un forceReconnect en curso, ignorar eventos de cierre — él maneja la reconexión
+      if (_manualReconnect) return;
+
       if (isLoggedOut) {
         // Sesión cerrada desde el teléfono: borrar auth y reconectar para mostrar nuevo QR
         console.log("[baileys] Logout detectado — borrando auth y reconectando para nuevo QR…");
@@ -247,6 +251,32 @@ async function connect(): Promise<void> {
       await handleIncomingMessage(msg, sock!);
     }
   });
+}
+
+/**
+ * Fuerza desconexión, borra auth y genera nuevo QR.
+ * Usado cuando el dashboard solicita reconexión.
+ */
+export async function forceReconnect(): Promise<void> {
+  if (_manualReconnect) return;
+  _manualReconnect = true;
+  console.log("[baileys] forceReconnect: desconectando y generando nuevo QR…");
+
+  if (sock) {
+    try { sock.ws?.close(); } catch {}
+    sock = null;
+  }
+
+  const { rm } = await import("fs/promises");
+  try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
+
+  reconnectAttempts = 0;
+  setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
+
+  // Esperar a que el cierre del WebSocket se propague antes de reconectar
+  await new Promise<void>((r) => setTimeout(r, 1_500));
+  _manualReconnect = false;
+  void connect();
 }
 
 /**

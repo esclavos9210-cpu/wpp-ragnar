@@ -5,21 +5,11 @@
  * (En v1 no hay IPC directo; se usa la DB como canal de señales.)
  */
 import { NextResponse } from "next/server";
-import { setConnectionState } from "@/lib/db";
-import fs from "fs";
-import path from "path";
+import { setConnectionState, setRestartRequested } from "@/lib/db";
 
 export async function POST() {
-  // Borrar archivos de auth para forzar nuevo QR en el próximo arranque del bot
-  const authDir = path.join(process.cwd(), "auth");
-  try {
-    if (fs.existsSync(authDir)) {
-      fs.rmSync(authDir, { recursive: true, force: true });
-    }
-  } catch {
-    // ignorar errores de permisos
-  }
-
-  setConnectionState.run({ status: "disconnected", qr_data: null, phone: null });
+  // Señalizar al proceso bot que se reconecte y genere nuevo QR
+  setRestartRequested.run({ val: 1 });
+  setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
   return NextResponse.json({ ok: true });
 }

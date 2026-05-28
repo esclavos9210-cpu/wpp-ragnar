@@ -69,12 +69,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_customer_mapping_barberly ON customer_mapping(barberly_customer_id);
 `);
 
-// Migración: agregar last_appointment_id si la columna no existe aún
-try {
-  db.exec(`ALTER TABLE customer_mapping ADD COLUMN last_appointment_id TEXT`);
-} catch {
-  // columna ya existe — ignorar
-}
+// Migraciones
+try { db.exec(`ALTER TABLE customer_mapping ADD COLUMN last_appointment_id TEXT`); } catch {}
+try { db.exec(`ALTER TABLE connection_state ADD COLUMN restart_requested INTEGER NOT NULL DEFAULT 0`); } catch {}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -183,6 +180,14 @@ export const setConnectionState = db.prepare<
      phone      = COALESCE(@phone, phone),
      updated_at = unixepoch()
    WHERE id = 1`
+);
+
+export const getRestartRequested = db.prepare<[], { restart_requested: number }>(
+  `SELECT restart_requested FROM connection_state WHERE id = 1`
+);
+
+export const setRestartRequested = db.prepare<{ val: number }, void>(
+  `UPDATE connection_state SET restart_requested = @val WHERE id = 1`
 );
 
 // Outbox
