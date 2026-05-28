@@ -193,6 +193,11 @@ export async function getAvailableSlots(
 ): Promise<TimeSlotOption[]> {
   const token = await getToken();
 
+  // Hora actual en Colombia (UTC-5, sin DST)
+  const nowColombia = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Bogota" }));
+  const todayStr = nowColombia.toISOString().split("T")[0];
+  const nowMinutes = nowColombia.getHours() * 60 + nowColombia.getMinutes();
+
   for (let i = 0; i <= MAX_DAYS_FORWARD; i++) {
     const d = addDays(requestedDate, i);
     const [year, month] = d.split("-").map(Number);
@@ -215,18 +220,25 @@ export async function getAvailableSlots(
       for (const day of week) {
         if (day.Date.startsWith(d) && day.Enabled && day.TimeSlots.length) {
           for (const ts of day.TimeSlots) {
-            // From = "2026-05-28T10:00:00"
+            // From = "2026-05-28T10:00:00" (hora Colombia)
             const time24 = ts.From.split("T")[1]?.substring(0, 5);
-            if (time24) daySlots.push({ date: d, time: time24 });
+            if (!time24) continue;
+
+            // Si es hoy, descartar horarios que ya pasaron
+            if (d === todayStr) {
+              const [h, m] = time24.split(":").map(Number);
+              if (h * 60 + m <= nowMinutes) continue;
+            }
+
+            daySlots.push({ date: d, time: time24 });
           }
           const allTimes = daySlots.map(s => s.time).join(", ");
           console.log(`[slots] ${d} empId=${employeeId ?? "auto"} → ${daySlots.length} slots: ${allTimes}`);
-          break; // encontró la fecha, no seguir buscando en semanas
+          break;
         }
       }
     }
 
-    // Si hay slots en este día, devolverlos todos (no limitar por cantidad)
     if (daySlots.length > 0) return daySlots;
   }
 
