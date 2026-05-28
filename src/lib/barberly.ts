@@ -219,6 +219,8 @@ export async function getAvailableSlots(
     for (const week of weeks) {
       for (const day of week) {
         if (day.Date.startsWith(d) && day.Enabled && day.TimeSlots.length) {
+          const rawTimes = day.TimeSlots.map(ts => ts.From.split("T")[1]?.substring(0, 5) ?? "?").join(", ");
+          console.log(`[slots-raw] ${d} empId=${employeeId ?? "auto"} nowMinutes=${nowMinutes} → ${day.TimeSlots.length} raw slots: ${rawTimes}`);
           for (const ts of day.TimeSlots) {
             // From = "2026-05-28T10:00:00" (hora Colombia)
             const time24 = ts.From.split("T")[1]?.substring(0, 5);
@@ -227,7 +229,7 @@ export async function getAvailableSlots(
             // Si es hoy, descartar horarios que ya pasaron
             if (d === todayStr) {
               const [h, m] = time24.split(":").map(Number);
-              if (h * 60 + m <= nowMinutes) continue;
+              if (h * 60 + m < nowMinutes) continue;
             }
 
             daySlots.push({ date: d, time: time24 });
