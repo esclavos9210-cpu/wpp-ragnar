@@ -161,12 +161,15 @@ async function connect(): Promise<void> {
       if (_manualReconnect) return;
 
       if (isLoggedOut) {
-        // Sesión cerrada desde el teléfono: borrar auth y reconectar para mostrar nuevo QR
-        // El evento loggedOut llega DESPUÉS de que creds.update ya guardó — borrar ahora es seguro
         console.log("[baileys] Logout detectado — borrando auth y reconectando para nuevo QR…");
+        // Remover creds.update ANTES de nullear para que saveCreds no restaure el auth
+        sock?.ev.removeAllListeners("creds.update");
         sock = null;
         const { rm } = await import("fs/promises");
-        try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
+        try {
+          await rm(AUTH_DIR, { recursive: true, force: true });
+          console.log("[baileys] auth borrado OK, conectando en 2s…");
+        } catch (e) { console.error("[baileys] error borrando auth:", e); }
         reconnectAttempts = 0;
         setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
         setTimeout(connect, 2_000);
