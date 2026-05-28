@@ -160,10 +160,11 @@ async function connect(): Promise<void> {
 
       if (isLoggedOut) {
         // Sesión cerrada desde el teléfono: borrar auth y reconectar para mostrar nuevo QR
+        // El evento loggedOut llega DESPUÉS de que creds.update ya guardó — borrar ahora es seguro
         console.log("[baileys] Logout detectado — borrando auth y reconectando para nuevo QR…");
+        sock = null;
         const { rm } = await import("fs/promises");
         try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
-        sock = null;
         reconnectAttempts = 0;
         setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
         setTimeout(connect, 2_000);
@@ -268,18 +269,19 @@ export async function forceReconnect(): Promise<void> {
   console.log("[baileys] forceReconnect: desconectando y generando nuevo QR…");
 
   if (sock) {
-    try { sock.ws?.close(); } catch {}
+    // logout() invalida la sesión en WhatsApp y dispara creds.update (saveCreds escribe el estado)
+    // Hay que esperar a que termine para que el saveCreds no restaure los archivos después de borrarlos
+    try { await sock.logout(); } catch {}
     sock = null;
   }
 
+  // Ahora que saveCreds ya terminó, borrar auth para forzar QR nuevo
   const { rm } = await import("fs/promises");
   try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
 
   reconnectAttempts = 0;
   setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
-
-  // Esperar a que el cierre del WebSocket se propague antes de reconectar
-  await new Promise<void>((r) => setTimeout(r, 1_500));
+  await new Promise<void>((r) => setTimeout(r, 500));
   _manualReconnect = false;
   void connect();
 }
