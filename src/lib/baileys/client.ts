@@ -268,24 +268,22 @@ async function connect(): Promise<void> {
 export async function forceReconnect(): Promise<void> {
   if (_manualReconnect) return;
   _manualReconnect = true;
-  console.log("[baileys] forceReconnect: desconectando y generando nuevo QR…");
+  console.log("[baileys] forceReconnect: cerrando socket y generando nuevo QR…");
 
   if (sock) {
-    // Remover creds.update PRIMERO para que saveCreds no restaure los archivos de auth
-    // después de que los borremos (la promesa de logout() puede resolver antes de que
-    // el evento creds.update se dispare de forma asíncrona)
+    // Remover creds.update para que saveCreds no restaure el auth tras el cierre
     sock.ev.removeAllListeners("creds.update");
-    try { await sock.logout(); } catch {}
+    try { sock.ws.close(); } catch {}
     sock = null;
   }
 
+  // El route de desconexión ya borró el auth; esto es por si acaso
   const { rm } = await import("fs/promises");
   try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
-  console.log("[baileys] forceReconnect: auth borrado, reconectando…");
+  console.log("[baileys] forceReconnect: generando QR nuevo…");
 
   reconnectAttempts = 0;
   setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
-  await new Promise<void>((r) => setTimeout(r, 500));
   _manualReconnect = false;
   void connect();
 }

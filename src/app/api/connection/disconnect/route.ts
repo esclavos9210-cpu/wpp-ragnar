@@ -6,9 +6,15 @@
  */
 import { NextResponse } from "next/server";
 import { setConnectionState, setRestartRequested } from "@/lib/db";
+import { rm } from "fs/promises";
+import path from "path";
 
 export async function POST() {
-  // Señalizar al proceso bot que se reconecte y genere nuevo QR
+  // Borrar auth files directamente desde el proceso web
+  const authDir = path.join(process.cwd(), "auth");
+  try { await rm(authDir, { recursive: true, force: true }); } catch {}
+
+  // Señalizar al bot que cierre el socket actual y reconecte (va a generar QR porque no hay auth)
   setRestartRequested.run({ val: 1 });
   setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
   return NextResponse.json({ ok: true });
