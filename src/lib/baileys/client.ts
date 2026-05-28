@@ -87,6 +87,21 @@ export async function resolveLidAsync(
   return jid;
 }
 
+/** Borra los archivos de auth sin borrar el directorio (que puede ser un volumen Docker bloqueado). */
+async function clearAuthFiles(): Promise<void> {
+  const { readdir, unlink, rm } = await import("fs/promises");
+  const { join } = await import("path");
+  try {
+    // En producción (Docker volume) el directorio está bloqueado — borrar solo los archivos
+    const files = await readdir(AUTH_DIR);
+    await Promise.all(files.map(f => unlink(join(AUTH_DIR, f)).catch(() => {})));
+    console.log(`[baileys] auth limpiado (${files.length} archivos borrados)`);
+  } catch {
+    // Si el directorio no existe, ignorar
+    try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
+  }
+}
+
 export async function startBaileyClient(): Promise<void> {
   reconnectAttempts = 0;
   await connect();
@@ -165,11 +180,7 @@ async function connect(): Promise<void> {
         // Remover creds.update ANTES de nullear para que saveCreds no restaure el auth
         sock?.ev.removeAllListeners("creds.update");
         sock = null;
-        const { rm } = await import("fs/promises");
-        try {
-          await rm(AUTH_DIR, { recursive: true, force: true });
-          console.log("[baileys] auth borrado OK, conectando en 2s…");
-        } catch (e) { console.error("[baileys] error borrando auth:", e); }
+        await clearAuthFiles();
         reconnectAttempts = 0;
         setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
         setTimeout(connect, 2_000);
@@ -183,11 +194,9 @@ async function connect(): Promise<void> {
         sock = null;
         setTimeout(connect, delay);
       } else {
-        // Auth probablemente inválido — limpiar y generar nuevo QR en lugar de rendirse
-        console.warn("[baileys] Máximo de reintentos alcanzado — limpiando auth para generar QR.");
-        const { rm } = await import("fs/promises");
-        try { await rm(AUTH_DIR, { recursive: true, force: true }); } catch {}
+        console.warn("[baileys] Máximo de reintentos — limpiando auth para generar QR.");
         sock = null;
+        await clearAuthFiles();
         reconnectAttempts = 0;
         setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
         setTimeout(connect, 2_000);
@@ -283,12 +292,7 @@ export async function forceReconnect(): Promise<void> {
   }
 
   const { rm } = await import("fs/promises");
-  try {
-    await rm(AUTH_DIR, { recursive: true, force: true });
-    console.log("[baileys] forceReconnect: auth borrado OK");
-  } catch (e) {
-    console.error("[baileys] forceReconnect: error borrando auth:", e);
-  }
+  await clearAuthFiles();
 
   reconnectAttempts = 0;
   setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
@@ -301,18 +305,9 @@ export async function forceReconnect(): Promise<void> {
  */
 export async function disconnectAndClear(): Promise<void> {
   if (sock) {
-    try {
-      await sock.logout();
-    } catch {
-      // ignorar errores al hacer logout
-    }
+    try { await sock.logout(); } catch {}
     sock = null;
   }
-  const { rm } = await import("fs/promises");
-  try {
-    await rm(AUTH_DIR, { recursive: true, force: true });
-  } catch {
-    // ignorar si ya no existe
-  }
+  await clearAuthFiles();
   setConnectionState.run({ status: "disconnected", qr_data: null, phone: null });
 }
