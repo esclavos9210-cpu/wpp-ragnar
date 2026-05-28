@@ -292,7 +292,6 @@ export async function getChatResponse(
             if (slots.length === 0) {
               result = `No hay disponibilidad para "${svcMatch.Name}" el ${args.fecha}. Prueba otra fecha.`;
             } else {
-              // Agrupar slots por fecha y convertir a rangos compactos
               const byDate = new Map<string, string[]>();
               for (const s of slots) {
                 if (!byDate.has(s.date)) byDate.set(s.date, []);
@@ -300,28 +299,9 @@ export async function getChatResponse(
               }
               const lines: string[] = [];
               for (const [date, times] of byDate) {
-                // Construir rangos: ["10:00","10:15","10:30","12:00","12:15"] → "10:00-10:30, 12:00-12:15"
-                const ranges: string[] = [];
-                let rangeStart = times[0];
-                let rangePrev = times[0];
-                for (let ti = 1; ti < times.length; ti++) {
-                  const [ph, pm] = rangePrev.split(":").map(Number);
-                  const [ch, cm] = times[ti].split(":").map(Number);
-                  const prevMin = ph * 60 + pm;
-                  const curMin = ch * 60 + cm;
-                  if (curMin - prevMin <= 30) {
-                    // consecutivo (15 o 30 min gap = mismo rango)
-                    rangePrev = times[ti];
-                  } else {
-                    ranges.push(rangeStart === rangePrev ? rangeStart : `${rangeStart} - ${rangePrev}`);
-                    rangeStart = times[ti];
-                    rangePrev = times[ti];
-                  }
-                }
-                ranges.push(rangeStart === rangePrev ? rangeStart : `${rangeStart} - ${rangePrev}`);
-                lines.push(`• ${date}: ${ranges.join(", ")}`);
+                lines.push(`• ${date}: ${times.join(", ")}`);
               }
-              result = `Disponibilidad para "${svcMatch.Name}":\n${lines.join("\n")}\n\nElige el horario exacto que prefiera el cliente.`;
+              result = `Horarios de INICIO disponibles para "${svcMatch.Name}" (estos son exactamente los horarios bookables, ni más ni menos):\n${lines.join("\n")}\n\nOfrece SOLO estos horarios al cliente, exactamente como aparecen.`;
             }
           }
         }
