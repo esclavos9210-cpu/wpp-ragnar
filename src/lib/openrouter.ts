@@ -123,20 +123,10 @@ export async function getChatResponse(
   // Detectar si el mensaje contiene un número de teléfono (≥10 dígitos, con o sin +código país)
   const phoneInMessage = /(\+\d{1,3}[\s\-]?)?\d[\d\s\-]{9,}/.test(newUserMessage.replace(/[^0-9+\s\-]/g, " "));
 
-  // Detectar si el cliente quiere agendar mencionando una hora — forzar consulta de disponibilidad
-  // para evitar que el LLM reutilice respuestas anteriores del historial.
-  const msg = newUserMessage.toLowerCase();
-  const bookingWithTime =
-    (msg.includes("agendar") || msg.includes("cita") || msg.includes("reservar")) &&
-    /\d{1,2}\s*(am|pm|a\.m\.|p\.m\.)|a las \d|para las \d|\d{1,2}:\d{2}/.test(msg);
-
   let toolChoice: OpenAI.Chat.Completions.ChatCompletionToolChoiceOption;
   if (phoneInMessage) {
     // Si hay teléfono, forzar búsqueda del cliente primero
     toolChoice = { type: "function", function: { name: "buscar_cliente" } };
-  } else if (bookingWithTime) {
-    // Si pide cita con hora específica, forzar consulta de disponibilidad fresca
-    toolChoice = { type: "function", function: { name: "consultar_disponibilidad" } };
   } else {
     toolChoice = "auto";
   }
