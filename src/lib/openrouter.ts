@@ -189,16 +189,26 @@ export async function getChatResponse(
 
         if (toolCall.function.name === "listar_citas") {
           const phone = args.telefono ?? "";
-          let mapping = whatsappJid ? getCustomerMappingByWhatsApp.get({ whatsapp_number: whatsappJid }) : null;
+          const mapping = whatsappJid ? getCustomerMappingByWhatsApp.get({ whatsapp_number: whatsappJid }) : null;
 
           // Fecha de hoy en Colombia (UTC-5) como string "YYYY-MM-DD"
           const todayColombiaStr = new Date(
             new Date().toLocaleString("en-US", { timeZone: "America/Bogota" })
           ).toISOString().split("T")[0];
 
-          // Intentar con el last_appointment_id guardado localmente
+          function formatBookings(bookings: Awaited<ReturnType<typeof getCustomerBookings>>) {
+            const upcoming = bookings.filter((b) => b.TimeSlot.Date.split("T")[0] >= todayColombiaStr);
+            if (upcoming.length === 0) return null;
+            return `Citas próximas del cliente:\n` + upcoming.map((b) => {
+              const h = Math.floor(b.TimeSlot.StartMinutesOfDay / 60).toString().padStart(2, "0");
+              const m = (b.TimeSlot.StartMinutesOfDay % 60).toString().padStart(2, "0");
+              return `• ID: ${b.Id} | Fecha: ${b.TimeSlot.Date.split("T")[0]} | Hora: ${h}:${m}`;
+            }).join("\n");
+          }
+
+          // 1. Intentar con last_appointment_id (lookup directo por ID)
           if (mapping?.last_appointment_id) {
-            console.log(`[listar_citas] usando last_appointment_id=${mapping.last_appointment_id}`);
+            console.log(`[listar_citas] intentando last_appointment_id=${mapping.last_appointment_id}`);
             const booking = await getBookingById(mapping.last_appointment_id);
             if (booking) {
               const bookingDateStr = booking.TimeSlot.Date.split("T")[0];
@@ -206,34 +216,32 @@ export async function getChatResponse(
                 const h = Math.floor(booking.TimeSlot.StartMinutesOfDay / 60).toString().padStart(2, "0");
                 const m = (booking.TimeSlot.StartMinutesOfDay % 60).toString().padStart(2, "0");
                 result = `Cita próxima del cliente:\n• ID: ${booking.Id} | Fecha: ${bookingDateStr} | Hora: ${h}:${m}`;
-              } else {
-                result = `El cliente no tiene citas próximas en Barberly (la última ya pasó).`;
-              }
-            } else {
-              result = `El cliente no tiene citas próximas en Barberly.`;
-            }
-          } else {
-            // Fallback: buscar por teléfono en Barberly
-            let customerId: string | undefined = mapping?.barberly_customer_id;
-            if (!customerId) {
-              const member = await searchCustomerByPhone(phone);
-              customerId = member?.Id;
-            }
-            if (!customerId) {
-              result = `No encontré al cliente con teléfono ${phone} en Barberly. Pídele que confirme su número.`;
-            } else {
-              const bookings = await getCustomerBookings(customerId);
-              const upcoming = bookings.filter((b) => b.TimeSlot.Date.split("T")[0] >= todayColombiaStr);
-              if (upcoming.length === 0) {
-                result = `El cliente no tiene citas próximas en Barberly.`;
-              } else {
-                result = `Citas próximas del cliente:\n` + upcoming.map((b) => {
-                  const h = Math.floor(b.TimeSlot.StartMinutesOfDay / 60).toString().padStart(2, "0");
-                  const m = (b.TimeSlot.StartMinutesOfDay % 60).toString().padStart(2, "0");
-                  return `• ID: ${b.Id} | Fecha: ${b.TimeSlot.Date.split("T")[0]} | Hora: ${h}:${m}`;
-                }).join("\n");
               }
             }
+          }
+
+          // 2. Si aún no hay resultado, buscar todas las citas por customerId del mapping
+          if (!result && mapping?.barberly_customer_id) {
+            console.log(`[listar_citas] intentando getCustomerBookings customerId=${mapping.barberly_customer_id}`);
+            const bookings = await getCustomerBookings(mapping.barberly_customer_id);
+            result = formatBookings(bookings) ?? "";
+          }
+
+          // 3. Si aún no hay resultado, buscar por teléfono en Barberly
+          if (!result && phone) {
+            const member = await searchCustomerByPhone(phone);
+            if (member) {
+              console.log(`[listar_citas] encontrado por teléfono: ${member.Id}`);
+              const bookings = await getCustomerBookings(member.Id);
+              result = formatBookings(bookings) ?? "";
+            }
+          }
+
+          // 4. Sin resultado tras todos los intentos
+          if (!result) {
+            result = phone
+              ? `No encontré citas activas para este cliente. Si el número ${phone} es correcto, puede que no tenga citas registradas en Barberly.`
+              : `No tengo el teléfono del cliente. Pídele su número de cel (con código de país, ej: +573001234567) para buscar sus citas.`;
           }
         }
 
