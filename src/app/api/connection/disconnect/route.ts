@@ -6,15 +6,19 @@
  */
 import { NextResponse } from "next/server";
 import { setConnectionState, setRestartRequested } from "@/lib/db";
-import { rm } from "fs/promises";
+import { readdir, unlink } from "fs/promises";
 import path from "path";
 
 export async function POST() {
-  // Borrar auth files directamente desde el proceso web
+  // Borrar archivos de auth (sin borrar el directorio — es un volumen Docker y da EBUSY)
   const authDir = path.join(process.cwd(), "auth");
-  try { await rm(authDir, { recursive: true, force: true }); } catch {}
+  try {
+    const files = await readdir(authDir);
+    await Promise.all(files.map(f => unlink(path.join(authDir, f)).catch(() => {})));
+  } catch {}
 
-  // Señalizar al bot que cierre el socket actual y reconecte (va a generar QR porque no hay auth)
+  // El bot detecta esta señal y llama process.exit(0);
+  // Docker reinicia el contenedor con auth vacío → genera QR nuevo
   setRestartRequested.run({ val: 1 });
   setConnectionState.run({ status: "connecting", qr_data: null, phone: null });
   return NextResponse.json({ ok: true });

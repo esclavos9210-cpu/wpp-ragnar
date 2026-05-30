@@ -8,6 +8,12 @@ const BASE_URL = "https://bs-api-platform.azurewebsites.net";
 const CLIENT_ID = "58A69589-B7FF-42D8-BBF5-244C22A28336";
 const LOCATION_ID = "1a9ee671-b0ae-4f45-a302-7cec110dde0b";
 
+function apiFetch(url: string, init?: RequestInit, timeoutMs = 10_000): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(id));
+}
+
 // ─── Sesión ──────────────────────────────────────────────────────────────────
 
 interface Session {
@@ -20,7 +26,7 @@ let session: Session | null = null;
 async function getToken(): Promise<string> {
   if (session && Date.now() < session.expiresAt) return session.token;
 
-  const res = await fetch(`${BASE_URL}/api/account/login`, {
+  const res = await apiFetch(`${BASE_URL}/api/account/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -73,7 +79,7 @@ let membersCache: { data: BarbMember[]; expiresAt: number } | null = null;
 async function getAllMembers(): Promise<BarbMember[]> {
   if (membersCache && Date.now() < membersCache.expiresAt) return membersCache.data;
   const token = await getToken();
-  const res = await fetch(`${BASE_URL}/api/members/search`, {
+  const res = await apiFetch(`${BASE_URL}/api/members/search`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({}),
@@ -135,7 +141,7 @@ export async function createMember(params: {
   email?: string;
 }): Promise<BarbMember> {
   const token = await getToken();
-  const res = await fetch(`${BASE_URL}/api/members`, {
+  const res = await apiFetch(`${BASE_URL}/api/members`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({
@@ -155,7 +161,7 @@ export async function createMember(params: {
 /** Devuelve todos los servicios activos. */
 export async function getServices(): Promise<BarbService[]> {
   const token = await getToken();
-  const res = await fetch(`${BASE_URL}/api/services`, {
+  const res = await apiFetch(`${BASE_URL}/api/services`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error(`getServices falló (${res.status})`);
@@ -165,7 +171,7 @@ export async function getServices(): Promise<BarbService[]> {
 /** Devuelve todos los barberos activos. */
 export async function getEmployees(): Promise<BarbEmployee[]> {
   const token = await getToken();
-  const res = await fetch(`${BASE_URL}/api/employees`, {
+  const res = await apiFetch(`${BASE_URL}/api/employees`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error(`getEmployees falló (${res.status})`);
@@ -206,7 +212,7 @@ export async function getAvailableSlots(
       `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?` +
       `serviceIds=${serviceId}${employeeId ? `&employeeId=${employeeId}` : ""}`;
 
-    const res = await fetch(url, { headers: authHeaders(token) });
+    const res = await apiFetch(url, { headers: authHeaders(token) });
     if (!res.ok) continue;
 
     const weeks = (await res.json()) as Array<Array<{
@@ -346,7 +352,7 @@ export async function scheduleAppointment(
       },
     };
 
-    const res = await fetch(`${BASE_URL}/api/bookings`, {
+    const res = await apiFetch(`${BASE_URL}/api/bookings`, {
       method: "POST",
       headers: authHeaders(token),
       body: JSON.stringify(body),
@@ -386,7 +392,7 @@ export interface BarbBooking {
 export async function getCustomerBookings(customerId: string): Promise<BarbBooking[]> {
   const token = await getToken();
   // Intentar endpoint de búsqueda primero
-  const res = await fetch(`${BASE_URL}/api/bookings/search`, {
+  const res = await apiFetch(`${BASE_URL}/api/bookings/search`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ LocationId: LOCATION_ID, CustomerId: customerId }),
@@ -396,7 +402,7 @@ export async function getCustomerBookings(customerId: string): Promise<BarbBooki
     return Array.isArray(data) ? data : (data.Items ?? []);
   }
   // Fallback: GET con query params
-  const res2 = await fetch(
+  const res2 = await apiFetch(
     `${BASE_URL}/api/bookings?locationId=${LOCATION_ID}&customerId=${customerId}`,
     { headers: authHeaders(token) }
   );
@@ -408,7 +414,7 @@ export async function getCustomerBookings(customerId: string): Promise<BarbBooki
 /** Obtiene una cita por su ID. Retorna null si no existe o fue cancelada. */
 export async function getBookingById(bookingId: string): Promise<BarbBooking | null> {
   const token = await getToken();
-  const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}`, {
+  const res = await apiFetch(`${BASE_URL}/api/bookings/${bookingId}`, {
     headers: authHeaders(token),
   });
   if (!res.ok) return null;
@@ -424,7 +430,7 @@ export async function getBookingById(bookingId: string): Promise<BarbBooking | n
 export async function cancelBooking(bookingId: string): Promise<{ success: boolean; message: string }> {
   const token = await getToken();
   // Intentar DELETE primero (REST estándar)
-  const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}`, {
+  const res = await apiFetch(`${BASE_URL}/api/bookings/${bookingId}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
@@ -433,7 +439,7 @@ export async function cancelBooking(bookingId: string): Promise<{ success: boole
     return { success: true, message: "Cita cancelada exitosamente." };
   }
   // Fallback: POST /cancel
-  const res2 = await fetch(`${BASE_URL}/api/bookings/${bookingId}/cancel`, {
+  const res2 = await apiFetch(`${BASE_URL}/api/bookings/${bookingId}/cancel`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({}),

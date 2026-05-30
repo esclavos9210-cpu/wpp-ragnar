@@ -102,20 +102,23 @@ export async function handleIncomingMessage(
 
   let response: string | null = null;
 
+  const { getSocket } = await import("./client");
+
   try {
     response = await getChatResponse(history, text, undefined, pushName || undefined, dbJid);
     if (!response) {
       console.warn(`[handler] respuesta vacía del LLM para jid=${dbJid}, se descarta`);
       return;
     }
+  } catch (err: unknown) {
+    console.error(`[handler] Error en getChatResponse para jid=${dbJid}:`, err);
+    response = "Disculpa, tuve un inconveniente. ¿Puedes intentarlo de nuevo? 🙏";
+  }
 
-    // Guardar respuesta en DB
-    insertMessage.run({ conversation_id: dbJid, role: "bot", content: response });
+  insertMessage.run({ conversation_id: dbJid, role: "bot", content: response });
 
-    // Usar siempre el socket más reciente
-    const { getSocket } = await import("./client");
+  try {
     const activeSock = getSocket() ?? sock;
-
     console.log(`[handler] enviando a ${sendJid}…`);
     await activeSock.sendMessage(sendJid, { text: response });
     console.log(`[handler] enviado ✓ → ${sendJid}: ${response}`);
