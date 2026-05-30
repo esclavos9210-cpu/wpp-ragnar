@@ -212,13 +212,21 @@ export async function getAvailableSlots(
     : (await getEmployees()).map(e => e.Id);
 
   function extractTimesForDay(
-    weeks: Array<Array<{ Date: string; Enabled: boolean; TimeSlots: Array<{ From: string }> }>>,
+    raw: unknown,
     d: string,
+    empLabel: string,
   ): string[] {
     const times: string[] = [];
+    // Normalizar: la API puede devolver Array<Array<Day>> o Array<Day>
+    const weeks: Array<Array<{ Date: string; Enabled: boolean; TimeSlots: Array<{ From: string }> }>> =
+      Array.isArray(raw)
+        ? Array.isArray(raw[0]) ? raw as never : [raw as never]
+        : [];
+
     for (const week of weeks) {
       for (const day of week) {
-        if (day.Date.startsWith(d) && day.Enabled && day.TimeSlots.length) {
+        if (!day || typeof day !== "object" || !("Date" in day)) continue;
+        if (day.Date.startsWith(d) && day.Enabled && day.TimeSlots?.length) {
           for (const ts of day.TimeSlots) {
             const time24 = ts.From.split("T")[1]?.substring(0, 5);
             if (!time24) continue;
@@ -228,6 +236,7 @@ export async function getAvailableSlots(
             }
             times.push(time24);
           }
+          console.log(`[slots-emp] ${d} emp=${empLabel} → ${times.length} slots: ${times.slice(0,5).join(", ")}${times.length > 5 ? "..." : ""}`);
           break;
         }
       }
@@ -250,10 +259,11 @@ export async function getAvailableSlots(
     );
 
     const timeSet = new Set<string>();
-    for (const r of responses) {
+    for (let j = 0; j < responses.length; j++) {
+      const r = responses[j];
       if (r.status !== "fulfilled" || !r.value) continue;
-      const weeks = r.value as Array<Array<{ Date: string; Enabled: boolean; TimeSlots: Array<{ From: string }> }>>;
-      for (const t of extractTimesForDay(weeks, d)) timeSet.add(t);
+      const empLabel = empIds[j] ?? "?";
+      for (const t of extractTimesForDay(r.value, d, empLabel)) timeSet.add(t);
     }
 
     if (timeSet.size > 0) {

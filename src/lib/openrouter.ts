@@ -323,7 +323,7 @@ export async function getChatResponse(
                 return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
               };
 
-              // Agrupar por fecha
+              // Agrupar por fecha y mostrar todos los slots disponibles
               const byDate = new Map<string, string[]>();
               for (const s of slots) {
                 if (!byDate.has(s.date)) byDate.set(s.date, []);
@@ -333,25 +333,7 @@ export async function getChatResponse(
               const lines: string[] = [];
               for (const [date, times] of byDate) {
                 const sorted = [...times].sort();
-
-                let displayed: string[];
-                if (args.hora_solicitada) {
-                  // Cliente pidió hora específica: mostrar las 8 más cercanas
-                  const [rh, rm] = args.hora_solicitada.split(":").map(Number);
-                  const reqMin = (rh || 0) * 60 + (rm || 0);
-                  displayed = [...sorted].sort((a, b) => {
-                    const [ah, am] = a.split(":").map(Number);
-                    const [bh, bm] = b.split(":").map(Number);
-                    return Math.abs(ah * 60 + am - reqMin) - Math.abs(bh * 60 + bm - reqMin);
-                  }).slice(0, 8).sort();
-                } else {
-                  // Sin hora específica: mostrar hasta 5 de mañana + 5 de tarde para cobertura completa
-                  const morning = sorted.filter(t => parseInt(t) < 13);
-                  const afternoon = sorted.filter(t => parseInt(t) >= 13);
-                  displayed = [...morning.slice(0, 5), ...afternoon.slice(0, 5)];
-                }
-
-                lines.push(`• ${date}: ${displayed.map(to12h).join(", ")}`);
+                lines.push(`• ${date}: ${sorted.map(to12h).join(", ")}`);
               }
               // Si el cliente pidió una hora específica que no está en los slots, indicar que igual intente agendar
               let extraNote = "";
