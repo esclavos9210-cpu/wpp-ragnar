@@ -264,13 +264,12 @@ export async function getAvailableSlots(
     const queries: Query[] = [];
 
     if (employeeId) {
+      // Solo query específica del empleado — incluir la query sin filtro causaba
+      // que slots ocupados por ese barbero aparecieran disponibles (otros barberos
+      // libres en ese horario contaminaban la unión).
       queries.push({
         url: `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}&employeeId=${employeeId}`,
         label: `emp=${employeeId}`,
-      });
-      queries.push({
-        url: `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}`,
-        label: "no-emp-filter",
       });
     } else {
       const allEmps = await getEmployees();
