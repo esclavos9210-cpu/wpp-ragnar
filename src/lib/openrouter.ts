@@ -323,27 +323,34 @@ export async function getChatResponse(
                 return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
               };
 
-              // Agrupar por fecha y limitar a 8 slots: los más cercanos a la hora pedida
+              // Agrupar por fecha
               const byDate = new Map<string, string[]>();
               for (const s of slots) {
                 if (!byDate.has(s.date)) byDate.set(s.date, []);
-                byDate.get(s.date)!.push(s.time); // guardar 24h para ordenar
+                byDate.get(s.date)!.push(s.time);
               }
 
               const lines: string[] = [];
               for (const [date, times] of byDate) {
-                // Si el cliente pidió una hora, ordenar por cercanía a ella
-                let sorted = [...times];
-                if (args.hora) {
-                  const [rh, rm] = args.hora.replace(/[^\d:]/g, "").split(":").map(Number);
+                const sorted = [...times].sort();
+
+                let displayed: string[];
+                if (args.hora_solicitada) {
+                  // Cliente pidió hora específica: mostrar las 8 más cercanas
+                  const [rh, rm] = args.hora_solicitada.split(":").map(Number);
                   const reqMin = (rh || 0) * 60 + (rm || 0);
-                  sorted.sort((a, b) => {
+                  displayed = [...sorted].sort((a, b) => {
                     const [ah, am] = a.split(":").map(Number);
                     const [bh, bm] = b.split(":").map(Number);
                     return Math.abs(ah * 60 + am - reqMin) - Math.abs(bh * 60 + bm - reqMin);
-                  });
+                  }).slice(0, 8).sort();
+                } else {
+                  // Sin hora específica: mostrar hasta 5 de mañana + 5 de tarde para cobertura completa
+                  const morning = sorted.filter(t => parseInt(t) < 13);
+                  const afternoon = sorted.filter(t => parseInt(t) >= 13);
+                  displayed = [...morning.slice(0, 5), ...afternoon.slice(0, 5)];
                 }
-                const displayed = sorted.slice(0, 8).sort(); // max 8, ordenados
+
                 lines.push(`• ${date}: ${displayed.map(to12h).join(", ")}`);
               }
               // Si el cliente pidió una hora específica que no está en los slots, indicar que igual intente agendar
