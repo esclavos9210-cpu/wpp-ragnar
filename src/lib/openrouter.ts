@@ -172,12 +172,15 @@ export async function getChatResponse(
       const c = content.toLowerCase();
       const looksLikeConfirmation =
         c.includes("cita confirmada") ||
+        c.includes("está confirmada") ||
+        c.includes("confirmada para") ||
         c.includes("cita está lista") ||
         c.includes("cita agendada") ||
         c.includes("te agendé") ||
         c.includes("te agendamos") ||
         c.includes("quedaste agendado") ||
         c.includes("aquí va la info de tu cita") ||
+        c.includes("todo listo") ||
         content.includes("✅") ||
         (c.includes("servicio:") && c.includes("fecha:") && c.includes("hora:"));
       if (looksLikeConfirmation && !agendarCitaCalled) {
@@ -295,7 +298,8 @@ export async function getChatResponse(
         else if (toolCall.function.name === "consultar_disponibilidad") {
           const svcs = await getServices();
           const svcMatch = svcs.find((s) =>
-            s.Name.toLowerCase().includes(args.service_name?.toLowerCase() ?? "")
+            s.Name.toLowerCase().includes(args.service_name?.toLowerCase() ?? "") ||
+            (args.service_name?.toLowerCase() ?? "").includes(s.Name.toLowerCase())
           );
           if (!svcMatch) {
             result = `Servicio "${args.service_name}" no encontrado. Servicios disponibles: ${svcs.map((s) => s.Name).join(", ")}`;
@@ -348,7 +352,8 @@ export async function getChatResponse(
           }
           const svcs = await getServices();
           const svcMatch = svcs.find((s) =>
-            s.Name.toLowerCase().includes(args.service_name?.toLowerCase() ?? "")
+            s.Name.toLowerCase().includes(args.service_name?.toLowerCase() ?? "") ||
+            (args.service_name?.toLowerCase() ?? "").includes(s.Name.toLowerCase())
           );
           if (!svcMatch) {
             result = `Servicio "${args.service_name}" no encontrado.`;
