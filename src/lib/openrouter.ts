@@ -313,21 +313,39 @@ export async function getChatResponse(
             if (slots.length === 0) {
               result = `No hay disponibilidad para "${svcMatch.Name}" el ${args.fecha}. Prueba otra fecha.`;
             } else {
+              const to12h = (t: string) => {
+                const [h, m] = t.split(":").map(Number);
+                const period = h >= 12 ? "pm" : "am";
+                const h12 = h % 12 || 12;
+                return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
+              };
               const byDate = new Map<string, string[]>();
               for (const s of slots) {
                 if (!byDate.has(s.date)) byDate.set(s.date, []);
-                byDate.get(s.date)!.push(s.time);
+                byDate.get(s.date)!.push(to12h(s.time));
               }
               const lines: string[] = [];
               for (const [date, times] of byDate) {
                 lines.push(`• ${date}: ${times.join(", ")}`);
               }
-              result = `Horarios de INICIO disponibles para "${svcMatch.Name}" (estos son exactamente los horarios bookables, ni más ni menos):\n${lines.join("\n")}\n\nOfrece SOLO estos horarios al cliente, exactamente como aparecen.`;
+              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}\n\nUsa estos horarios exactamente al agendar. Para agendar, convierte al formato 24h (ej: "4:00 pm" → "16:00").`;
             }
           }
         }
 
         else if (toolCall.function.name === "agendar_cita") {
+          // Normalizar hora: acepta "4:00 pm", "4pm", "16:00" → siempre "HH:MM" 24h
+          if (args.hora) {
+            const match = args.hora.match(/^(\d{1,2}):?(\d{2})?\s*(am|pm)$/i);
+            if (match) {
+              let h = parseInt(match[1]);
+              const m = parseInt(match[2] ?? "0");
+              const period = match[3].toLowerCase();
+              if (period === "pm" && h !== 12) h += 12;
+              if (period === "am" && h === 12) h = 0;
+              args.hora = `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+            }
+          }
           const svcs = await getServices();
           const svcMatch = svcs.find((s) =>
             s.Name.toLowerCase().includes(args.service_name?.toLowerCase() ?? "")
