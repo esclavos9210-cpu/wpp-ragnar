@@ -504,8 +504,16 @@ export async function scheduleAppointment(
       return { success: false, message: `Error al agendar (${res.status}): ${errText}` };
     }
 
-    const data = (await res.json()) as { Id?: string };
-    console.log(`[appointment-created] id=${data.Id} customer=${memberId} service=${params.serviceName} date=${params.date} time=${params.time}`);
+    const data = (await res.json()) as { Id?: string; EmployeeId?: string };
+    console.log(`[appointment-created] id=${data.Id} requestedEmp=${params.employeeId ?? "auto"} actualEmp=${data.EmployeeId ?? "unknown"} customer=${memberId} service=${params.serviceName} date=${params.date} time=${params.time}`);
+
+    // Si se solicitó un barbero específico pero Barberly asignó otro, cancelar y reportar fallo.
+    if (params.employeeId && data.Id && data.EmployeeId && data.EmployeeId !== params.employeeId) {
+      console.warn(`[appointment-mismatch] requested=${params.employeeId} actual=${data.EmployeeId} — cancelando ${data.Id}`);
+      try { await cancelBooking(data.Id); } catch (e) { console.error("[appointment-mismatch] error cancelando:", e); }
+      return { success: false, message: `El barbero solicitado no tiene disponibilidad en ese horario. Por favor elige otro horario.` };
+    }
+
     return {
       success: true,
       appointmentId: data.Id,

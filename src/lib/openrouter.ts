@@ -373,6 +373,11 @@ export async function getChatResponse(
               empId = emps.find((e) =>
                 normalize(e.FullName).includes(normalize(args.barbero))
               )?.Id;
+              if (!empId) {
+                result = `Barbero "${args.barbero}" no encontrado en el equipo. Barberos activos: ${emps.map((e) => e.FullName).join(", ")}. Pídele al cliente que confirme el nombre.`;
+                toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+                continue;
+              }
             }
             const slots = await getAvailableSlots(svcMatch.Id, args.fecha, empId);
             if (slots.length === 0) {
@@ -536,6 +541,12 @@ export async function getChatResponse(
               empId = emps.find((e) =>
                 normalize(e.FullName).includes(normalize(args.barbero))
               )?.Id;
+              if (!empId) {
+                agendarCitaCalled = true;
+                result = `Barbero "${args.barbero}" no encontrado en el sistema. Barberos disponibles: ${emps.map((e) => e.FullName).join(", ")}. No se puede agendar sin confirmar el barbero.`;
+                toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+                continue;
+              }
             }
 
             const appt = await scheduleAppointment({
