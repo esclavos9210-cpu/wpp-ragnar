@@ -418,8 +418,8 @@ export async function getChatResponse(
               const lastSlot = to12h(allSlotsList[allSlotsList.length - 1]);
               const totalSlots = allSlotsList.length;
 
-              const summary = `\n\nPRIMER slot: ${firstSlot}. ÚLTIMO slot: ${lastSlot}.\nTotal: ${totalSlots} horarios disponibles.`;
-              const instruction = `\n\nReglas para el LLM:\n1. Si el cliente pide una hora específica (ej: "8pm"), SIEMPRE intenta agendar_cita directamente a esa hora en formato 24h. Barberly confirmará o rechazará. Solo di "no disponible" si Barberly RECHAZA el intento de agendar.\n2. NO uses la lista de slots para descartar horas — la API puede sub-reportar.\n3. Al mostrar el último slot al cliente, di la hora EXACTA (ej: "el último horario es 7:45 pm"), NO la redondees a 7 pm.\n4. Al agendar usa formato 24h (ej: 7:45 pm → 19:45, 8:00 pm → 20:00, 4 pm → 16:00).`;
+              const summary = `\n\nTotal: ${totalSlots} horarios disponibles. Primer slot de la API: ${firstSlot}.\n⚠️ ADVERTENCIA: la API de Barberly sub-reporta — puede haber horarios adicionales NO listados que sí son agendables (ejemplo: hasta 30 min después del último slot mostrado). NO uses esta lista para rechazar horas.`;
+              const instruction = `\n\nCOMPORTAMIENTO OBLIGATORIO:\n- Si el cliente pregunta por UNA hora específica (ej: "¿tienes a las 8pm?"), responde POSITIVAMENTE ("Sí, lo intentamos") y pide su teléfono para proceder a agendar.\n- NUNCA digas "no hay disponibilidad a las X" basándote solo en esta lista.\n- Solo reporta "no disponible" cuando Barberly RECHACE el intento real de agendar_cita.\n- Al agendar usa formato 24h (8pm → 20:00, 7:45pm → 19:45, 4pm → 16:00).`;
 
               result = `Horarios disponibles para "${svcMatch.Name}"${barberLabel}:\n${lines.join("\n")}${summary}${instruction}${extraNote}`;
             }
