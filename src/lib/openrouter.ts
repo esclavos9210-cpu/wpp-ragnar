@@ -41,6 +41,7 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           service_name: { type: "string", description: "Nombre del servicio (ej: 'Corte clásico', 'Corte + Barba')" },
           fecha: { type: "string", description: "Fecha deseada en formato YYYY-MM-DD" },
           barbero: { type: "string", description: "Nombre del barbero preferido (opcional)" },
+          hora_solicitada: { type: "string", description: "Hora exacta que pidió el cliente en formato 24h (ej: '16:00'). Solo incluir si el cliente mencionó una hora específica." },
         },
         required: ["service_name", "fecha"],
       },
@@ -355,7 +356,15 @@ export async function getChatResponse(
                 const displayed = sorted.slice(0, 8).sort(); // max 8, ordenados
                 lines.push(`• ${date}: ${displayed.map(to12h).join(", ")}`);
               }
-              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}\n\nAl agendar usa formato 24h (ej: 4:00 pm → 16:00, 5:00 pm → 17:00).`;
+              // Si el cliente pidió una hora específica que no está en los slots, indicar que igual intente agendar
+              let extraNote = "";
+              if (args.hora_solicitada) {
+                const reqInSlots = slots.some(s => s.time === args.hora_solicitada);
+                if (!reqInSlots) {
+                  extraNote = `\n\n⚠️ IMPORTANTE: El cliente solicitó las ${args.hora_solicitada} pero no aparece en los slots de la API. Esto puede ser una limitación de la API de consulta. Intenta agendar directamente a las ${args.hora_solicitada} con agendar_cita — el sistema de reservas puede aceptarla aunque no aparezca aquí. Si falla, ofrece los horarios listados arriba.`;
+                }
+              }
+              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}\n\nAl agendar usa formato 24h (ej: 4:00 pm → 16:00, 5:00 pm → 17:00).${extraNote}`;
             }
           }
         }
