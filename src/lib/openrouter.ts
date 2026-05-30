@@ -91,7 +91,7 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           email_cliente: { type: "string", description: "Correo electrónico del cliente" },
           barbero: { type: "string", description: "Nombre del barbero preferido (opcional)" },
         },
-        required: ["fecha", "hora", "service_name", "nombre_cliente", "telefono_cliente", "email_cliente"],
+        required: ["fecha", "hora", "service_name", "nombre_cliente", "telefono_cliente"],
       },
     },
   },
