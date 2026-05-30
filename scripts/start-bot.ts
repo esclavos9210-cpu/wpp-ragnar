@@ -8,6 +8,7 @@ import "./env-loader"; // <- carga .env.local ANTES que todo
 import { startBaileyClient } from "../src/lib/baileys/client";
 import { drainOutbox } from "../src/lib/baileys/handler";
 import { getRestartRequested, setRestartRequested } from "../src/lib/db";
+import { startReminderScheduler } from "../src/lib/reminder-scheduler";
 
 console.log("[bot] Iniciando agente WhatsApp…");
 
@@ -23,6 +24,9 @@ setInterval(() => {
     process.exit(0); // Docker restart policy reinicia el contenedor con auth vacío → QR nuevo
   }
 }, 3_000);
+
+// Iniciar scheduler de recordatorios (solo activo si META_WA_TOKEN está configurado)
+startReminderScheduler();
 
 startBaileyClient().catch((err) => {
   console.error("[bot] Error fatal:", err);
