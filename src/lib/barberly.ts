@@ -205,12 +205,11 @@ export async function getAvailableSlots(
   const todayStr = nowColombia.toISOString().split("T")[0];
   const nowMinutes = nowColombia.getHours() * 60 + nowColombia.getMinutes();
 
-  // Sin barbero específico: consultar cada empleado en paralelo y unir resultados.
-  // El endpoint sin employeeId devuelve intersección (todos libres), no unión.
-  const empIds: string[] = employeeId
-    ? [employeeId]
-    : (await getEmployees()).map(e => e.Id);
-
+  // Estrategia:
+  // - Si employeeId está especificado: consultar AMBOS (con y sin employeeId) y unir.
+  //   La API a veces sub-reporta slots del empleado-específico vs portal Barberly.
+  // - Si NO hay employeeId: consultar cada empleado en paralelo y unir.
+  //   El endpoint sin employeeId devuelve intersección (todos libres), no unión.
   type DayShape = { Date: string; Enabled: boolean; TimeSlots: Array<{ From: string }> };
 
   function extractTimesForDay(
@@ -220,10 +219,15 @@ export async function getAvailableSlots(
   ): string[] {
     const times: string[] = [];
     if (!Array.isArray(raw)) return times;
-    // Normalizar: la API puede devolver Array<Array<Day>> o Array<Day>
-    const weeks: DayShape[][] = Array.isArray(raw[0])
-      ? (raw as DayShape[][])
-      : [raw as DayShape[]];
+    // Normalizar: la API puede devolver Array<Array<Day>>, Array<Day>, o incluso vacío.
+    let weeks: DayShape[][];
+    if (raw.length === 0) {
+      weeks = [];
+    } else if (Array.isArray(raw[0])) {
+      weeks = raw as DayShape[][];
+    } else {
+      weeks = [raw as DayShape[]];
+    }
 
     for (const week of weeks) {
       if (!Array.isArray(week)) continue;
@@ -253,35 +257,49 @@ export async function getAvailableSlots(
     const d = addDays(requestedDate, i);
     const [year, month] = d.split("-").map(Number);
 
-    // Consultar todos los empleados en paralelo
+    // Construir lista de queries a ejecutar.
+    // - Si employeeId: query con empleado + query sin empleado (union).
+    // - Si no: query por cada empleado (union de todos).
+    type Query = { url: string; label: string };
+    const queries: Query[] = [];
+
+    if (employeeId) {
+      queries.push({
+        url: `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}&employeeId=${employeeId}`,
+        label: `emp=${employeeId}`,
+      });
+      queries.push({
+        url: `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}`,
+        label: "no-emp-filter",
+      });
+    } else {
+      const allEmps = await getEmployees();
+      for (const e of allEmps) {
+        queries.push({
+          url: `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}&employeeId=${e.Id}`,
+          label: `emp=${e.Id}`,
+        });
+      }
+    }
+
     const responses = await Promise.allSettled(
-      empIds.map(eid =>
-        apiFetch(
-          `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}&employeeId=${eid}`,
-          { headers: authHeaders(token) },
-        ).then(r => r.ok ? r.json() : null).catch(() => null)
+      queries.map(q =>
+        apiFetch(q.url, { headers: authHeaders(token) })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
       )
     );
 
     const timeSet = new Set<string>();
     for (let j = 0; j < responses.length; j++) {
       const r = responses[j];
-      if (r.status !== "fulfilled" || !r.value) continue;
-      const empLabel = empIds[j] ?? "?";
-      for (const t of extractTimesForDay(r.value, d, empLabel)) timeSet.add(t);
-    }
-
-    // Si pidieron empleado específico y no hubo resultados, hacer fallback SIN employeeId
-    // (puede ser que la API filtre slots de más con employeeId)
-    if (timeSet.size === 0 && employeeId && i === 0) {
-      console.log(`[slots] ${d} empId=${employeeId} sin slots → fallback sin filtro de empleado`);
-      const fallbackRes = await apiFetch(
-        `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}`,
-        { headers: authHeaders(token) },
-      ).then(r => r.ok ? r.json() : null).catch(() => null);
-      if (fallbackRes) {
-        for (const t of extractTimesForDay(fallbackRes, d, "no-emp-filter")) timeSet.add(t);
+      const label = queries[j].label;
+      if (r.status !== "fulfilled" || !r.value) {
+        console.log(`[slots-query] ${d} ${label} → no response`);
+        continue;
       }
+      const times = extractTimesForDay(r.value, d, label);
+      for (const t of times) timeSet.add(t);
     }
 
     if (timeSet.size > 0) {

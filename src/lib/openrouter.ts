@@ -184,8 +184,17 @@ export async function getChatResponse(
         c.includes("cancel") ||      // cancelada, cancelar, cancelación
         c.includes("anulada") ||
         c.includes("anulé");
+      // Las respuestas que muestran horarios disponibles no son confirmaciones.
+      const mentionsAvailability =
+        c.includes("disponible") ||
+        c.includes("disponibilidad") ||
+        c.includes("horarios") ||
+        c.includes("¿cuál te queda") ||
+        c.includes("cual te queda");
+      // Si es una pregunta, no es una confirmación.
+      const looksLikeQuestion = content.trim().endsWith("?") || c.includes("¿");
       // Si ya se llamó cancelar_cita o el contenido es claramente sobre cancelación, no bloquear.
-      const skipGuard = agendarCitaCalled || cancelarCitaCalled || mentionsCancellation;
+      const skipGuard = agendarCitaCalled || cancelarCitaCalled || mentionsCancellation || mentionsAvailability;
       const looksLikeBookingConfirmation =
         !skipGuard && (
           c.includes("cita confirmada") ||
@@ -196,11 +205,11 @@ export async function getChatResponse(
           c.includes("te agendamos") ||
           c.includes("quedaste agendado") ||
           c.includes("aquí va la info de tu cita") ||
-          (c.includes("servicio:") && c.includes("fecha:") && c.includes("hora:")) ||
+          (!looksLikeQuestion && c.includes("servicio:") && c.includes("fecha:") && c.includes("hora:")) ||
           (content.includes("✅") && (c.includes("cita") || c.includes("agend")))
         );
       if (looksLikeBookingConfirmation) {
-        console.warn("[openrouter] BLOCKED: confirmación de agendamiento sin agendar_cita");
+        console.warn(`[openrouter] BLOCKED: confirmación de agendamiento sin agendar_cita. content="${content.substring(0, 200)}"`);
         return "Disculpa, tuve un problema al registrar tu cita. ¿Puedes intentarlo de nuevo?";
       }
       return content;
@@ -348,10 +357,6 @@ export async function getChatResponse(
                 const h12 = h % 12 || 12;
                 return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
               };
-              const toMin = (t: string) => {
-                const [h, m] = t.split(":").map(Number);
-                return h * 60 + m;
-              };
 
               // Agrupar por fecha
               const byDate = new Map<string, string[]>();
@@ -360,53 +365,23 @@ export async function getChatResponse(
                 byDate.get(s.date)!.push(s.time);
               }
 
+              // Mostrar TODOS los slots disponibles (WhatsApp soporta mensajes largos).
+              // El LLM necesita el listado completo para responder "¿está disponible las 4pm?".
               const lines: string[] = [];
-
-              // Si el cliente pidió hora específica: mostrar las 6 más cercanas
-              if (args.hora_solicitada) {
-                const target = toMin(args.hora_solicitada);
-                for (const [date, times] of byDate) {
-                  const sorted = [...times].sort();
-                  const closest = sorted
-                    .map(t => ({ t, diff: Math.abs(toMin(t) - target) }))
-                    .sort((a, b) => a.diff - b.diff)
-                    .slice(0, 6)
-                    .map(x => x.t)
-                    .sort();
-                  lines.push(`• ${date}: ${closest.map(to12h).join(", ")}`);
-                }
-              } else {
-                // Sin hora pedida: agrupar en rangos compactos (slots consecutivos)
-                for (const [date, times] of byDate) {
-                  const sorted = [...times].sort();
-                  if (sorted.length === 0) continue;
-                  // Detectar paso (en min) entre slots consecutivos para agrupar
-                  const ranges: Array<[string, string]> = [];
-                  let rangeStart = sorted[0];
-                  let prev = sorted[0];
-                  for (let k = 1; k < sorted.length; k++) {
-                    const gap = toMin(sorted[k]) - toMin(prev);
-                    // Cierre de rango si el salto > 60 min (1h)
-                    if (gap > 60) {
-                      ranges.push([rangeStart, prev]);
-                      rangeStart = sorted[k];
-                    }
-                    prev = sorted[k];
-                  }
-                  ranges.push([rangeStart, prev]);
-                  const formatted = ranges
-                    .map(([a, b]) => (a === b ? to12h(a) : `${to12h(a)} - ${to12h(b)}`))
-                    .join(", ");
-                  lines.push(`• ${date}: ${formatted}`);
-                }
+              for (const [date, times] of byDate) {
+                const sorted = [...times].sort();
+                const formatted = sorted.map(to12h).join(", ");
+                lines.push(`• ${date}: ${formatted}`);
               }
 
-              // Si el cliente pidió una hora específica que no está en los slots, hint para intentar igual
+              // Nota sobre hora solicitada
               let extraNote = "";
               if (args.hora_solicitada) {
                 const reqInSlots = slots.some(s => s.time === args.hora_solicitada);
-                if (!reqInSlots) {
-                  extraNote = `\n\n⚠️ El cliente pidió ${args.hora_solicitada} y NO aparece en los slots de la API. La API de consulta a veces omite slots que sí son agendables. Intenta agendar directamente a las ${args.hora_solicitada} con agendar_cita; si falla, ofrece los más cercanos (los listados arriba ya son los 6 más próximos a su hora pedida).`;
+                if (reqInSlots) {
+                  extraNote = `\n\n✅ La hora solicitada (${args.hora_solicitada}) SÍ está disponible. Confirma con el cliente y procede a agendar.`;
+                } else {
+                  extraNote = `\n\n⚠️ La hora solicitada (${args.hora_solicitada}) NO está en los slots de la API. La API a veces omite slots que sí son agendables — intenta agendar directamente con agendar_cita a esa hora. Si Barberly rechaza, ofrece las horas listadas arriba como alternativa.`;
                 }
               }
               result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}\n\nAl agendar usa formato 24h (ej: 4:00 pm → 16:00, 5:00 pm → 17:00).${extraNote}`;
@@ -445,6 +420,8 @@ export async function getChatResponse(
           }
           // Sanity check: fecha YYYY-MM-DD
           if (args.fecha && !/^\d{4}-\d{2}-\d{2}$/.test(args.fecha)) {
+            // Marcar agendar como llamado para que el guard de confirmación no doble-bloquee.
+            agendarCitaCalled = true;
             result = `Formato de fecha inválido: "${args.fecha}". Necesito YYYY-MM-DD.`;
             toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
             continue;
@@ -455,7 +432,10 @@ export async function getChatResponse(
             (args.service_name?.toLowerCase() ?? "").includes(s.Name.toLowerCase())
           );
           if (!svcMatch) {
-            result = `Servicio "${args.service_name}" no encontrado.`;
+            // Marcar agendar como llamado: la intención fue agendar (aunque falló la búsqueda de servicio).
+            // Sin esto, el guard podría bloquear la siguiente respuesta del LLM.
+            agendarCitaCalled = true;
+            result = `Servicio "${args.service_name}" no encontrado. Servicios disponibles: ${svcs.map((s) => s.Name).join(", ")}. Pídele al cliente que confirme cuál quiere.`;
           } else {
             // Buscar customer_id pre-resuelto en DB local (guardado por buscar_cliente)
             let knownCustomerId: string | undefined;
@@ -528,8 +508,9 @@ export async function getChatResponse(
             agendarCitaCalled = true;
             console.log(`[agendar_cita] success=${appt.success} empId=${empId ?? "auto"} hora=${args.hora} fecha=${args.fecha} msg="${appt.message.substring(0, 100)}"`);
             if (!appt.success) {
-              // Cuando falla, pedir verificar disponibilidad fresca antes de reintentar
-              result = `${appt.message}\n\nLlama a consultar_disponibilidad para obtener horarios realmente disponibles y ofrece alternativas al cliente.`;
+              // Cuando falla, pedir verificar disponibilidad fresca antes de reintentar.
+              // IMPORTANTE: agendarCitaCalled ya está en true, así que el guard no bloqueará.
+              result = `❌ NO se agendó la cita. Razón: ${appt.message}\n\nLA CITA NO QUEDÓ REGISTRADA. NO le digas al cliente que está confirmada. Llama a consultar_disponibilidad ahora mismo para obtener horarios realmente disponibles y ofrécele alternativas.`;
             } else {
               result = appt.message;
             }
