@@ -151,8 +151,8 @@ export async function getChatResponse(
   let agendarCitaCalled = false;
   let cancelarCitaCalled = false;
 
-  // Loop de tool calls (máximo 5 iteraciones — cancelar requiere listar + cancelar + responder)
-  for (let i = 0; i < 5; i++) {
+  // Loop de tool calls (máximo 8 iteraciones — flujos complejos: timeout-retry + buscar + disponibilidad + agendar + responder)
+  for (let i = 0; i < 8; i++) {
     const choice = response.choices[0];
     if (choice.finish_reason !== "tool_calls") {
       const content = choice.message.content ?? "";
@@ -552,7 +552,7 @@ export async function getChatResponse(
             if (!appt.success) {
               // Cuando falla, pedir verificar disponibilidad fresca antes de reintentar.
               // IMPORTANTE: agendarCitaCalled ya está en true, así que el guard no bloqueará.
-              result = `❌ NO se agendó la cita. Razón: ${appt.message}\n\nLA CITA NO QUEDÓ REGISTRADA. NO le digas al cliente que está confirmada. Llama a consultar_disponibilidad ahora mismo para obtener horarios realmente disponibles y ofrécele alternativas.`;
+              result = `❌ NO se agendó la cita. Razón: ${appt.message}\n\nLA CITA NO QUEDÓ REGISTRADA. Genera AHORA una respuesta de texto al cliente explicando que ese horario no está disponible y ofrécele los horarios que ya obtuviste anteriormente. NO llames más herramientas.`;
             } else {
               result = appt.message;
             }
@@ -580,5 +580,11 @@ export async function getChatResponse(
     });
   }
 
-  return response.choices[0].message.content ?? "";
+  // Si se agotaron las iteraciones sin respuesta final, devolver mensaje de fallback
+  const lastContent = response.choices[0].message.content;
+  if (!lastContent) {
+    console.warn("[openrouter] loop agotado sin respuesta final — devolviendo fallback");
+    return "Disculpa, tuve un problema procesando tu solicitud. ¿Puedes intentarlo de nuevo?";
+  }
+  return lastContent;
 }
