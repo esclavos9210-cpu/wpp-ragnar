@@ -444,7 +444,13 @@ export async function getChatResponse(
             }
 
             agendarCitaCalled = true;
-            result = appt.message;
+            console.log(`[agendar_cita] success=${appt.success} empId=${empId ?? "auto"} hora=${args.hora} fecha=${args.fecha} msg="${appt.message.substring(0, 100)}"`);
+            if (!appt.success) {
+              // Cuando falla, pedir verificar disponibilidad fresca antes de reintentar
+              result = `${appt.message}\n\nLlama a consultar_disponibilidad para obtener horarios realmente disponibles y ofrece alternativas al cliente.`;
+            } else {
+              result = appt.message;
+            }
           }
         }
       } catch (err) {
