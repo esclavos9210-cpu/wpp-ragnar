@@ -390,16 +390,43 @@ export async function getChatResponse(
               empId = matchedEmp.Id;
               matchedEmpName = matchedEmp.FullName;
             }
+            const to12h = (t: string) => {
+              const [h, m] = t.split(":").map(Number);
+              const period = h >= 12 ? "pm" : "am";
+              const h12 = h % 12 || 12;
+              return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
+            };
+
+            // Caso especial: cliente pregunta "¿quién tiene disponibilidad a las X?"
+            // → consultar cada barbero individualmente y devolver solo los que tienen ese slot.
+            if (args.hora_solicitada && !empId) {
+              const allEmps = await getEmployees();
+              const perEmp = await Promise.allSettled(
+                allEmps.map(emp =>
+                  getAvailableSlots(svcMatch.Id, args.fecha, emp.Id)
+                    .then(s => ({ name: emp.FullName, has: s.some(x => x.date === args.fecha && x.time === args.hora_solicitada) }))
+                    .catch(() => ({ name: emp.FullName, has: false }))
+                )
+              );
+              const availableEmps = perEmp
+                .filter((r): r is PromiseFulfilledResult<{name: string; has: boolean}> => r.status === "fulfilled" && r.value.has)
+                .map(r => r.value.name);
+              const timeStr = to12h(args.hora_solicitada);
+              if (availableEmps.length === 0) {
+                result = `No hay ningún barbero disponible a las ${timeStr} para "${svcMatch.Name}" el ${args.fecha}.`;
+              } else {
+                result = `Barberos disponibles a las ${timeStr} para "${svcMatch.Name}" el ${args.fecha}:\n` +
+                  availableEmps.map(n => `• ${n}`).join("\n") +
+                  `\n\nMuestra esta lista al cliente y espera que elija un barbero.`;
+              }
+              toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+              continue;
+            }
+
             const slots = await getAvailableSlots(svcMatch.Id, args.fecha, empId);
             if (slots.length === 0) {
               result = `No hay disponibilidad para "${svcMatch.Name}" el ${args.fecha}. Prueba otra fecha.`;
             } else {
-              const to12h = (t: string) => {
-                const [h, m] = t.split(":").map(Number);
-                const period = h >= 12 ? "pm" : "am";
-                const h12 = h % 12 || 12;
-                return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
-              };
 
               // Convertir slots a rangos compactos para WhatsApp
               const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
