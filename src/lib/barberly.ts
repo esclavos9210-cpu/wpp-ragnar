@@ -83,9 +83,10 @@ async function getAllMembers(): Promise<BarbMember[]> {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({}),
-  });
+  }, 20_000); // 20s — la lista de clientes puede ser grande
   if (!res.ok) return [];
-  const data = (await res.json()) as BarbMember[];
+  const raw = await res.json() as BarbMember[] | { Items?: BarbMember[] };
+  const data = Array.isArray(raw) ? raw : (raw.Items ?? []);
   membersCache = { data, expiresAt: Date.now() + 5 * 60 * 1000 };
   return data;
 }

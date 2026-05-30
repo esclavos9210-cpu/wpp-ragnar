@@ -292,7 +292,7 @@ export async function getChatResponse(
             }
             result = `Cliente ENCONTRADO en Barberly:\n- ID: ${member.Id}\n- Nombre: ${member.FullName}\n- Teléfono: ${member.PhoneNumber ?? phone}\n- Email: ${member.Email ?? "(no registrado)"}\nUsa estos datos para agendar. NO pidas más información al cliente.`;
           } else {
-            result = `Cliente NO encontrado. Pídele al cliente:\n- Nombre completo\n- Correo electrónico\n(El teléfono ya lo tienes: ${phone})`;
+            result = `Cliente NUEVO (no registrado en Barberly). Esto es normal para clientes nuevos. Pídele en UN solo mensaje:\n- Nombre completo\n- Correo electrónico\n(Su teléfono es: ${phone})`;
           }
         }
 
