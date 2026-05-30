@@ -169,8 +169,17 @@ export async function getChatResponse(
       }
 
       // Si el LLM genera confirmación sin haber llamado agendar_cita, bloquearlo
-      const looksLikeConfirmation = content.toLowerCase().includes("cita confirmada") ||
-        content.includes("✅");
+      const c = content.toLowerCase();
+      const looksLikeConfirmation =
+        c.includes("cita confirmada") ||
+        c.includes("cita está lista") ||
+        c.includes("cita agendada") ||
+        c.includes("te agendé") ||
+        c.includes("te agendamos") ||
+        c.includes("quedaste agendado") ||
+        c.includes("aquí va la info de tu cita") ||
+        content.includes("✅") ||
+        (c.includes("servicio:") && c.includes("fecha:") && c.includes("hora:"));
       if (looksLikeConfirmation && !agendarCitaCalled) {
         console.warn("[openrouter] BLOCKED: confirmación sin agendar_cita");
         return "Disculpa, tuve un problema al registrar tu cita. ¿Puedes intentarlo de nuevo?";
