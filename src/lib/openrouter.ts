@@ -358,33 +358,56 @@ export async function getChatResponse(
                 return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
               };
 
-              // Agrupar por fecha
+              // Convertir slots a rangos compactos para WhatsApp
+              const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+
               const byDate = new Map<string, string[]>();
               for (const s of slots) {
                 if (!byDate.has(s.date)) byDate.set(s.date, []);
                 byDate.get(s.date)!.push(s.time);
               }
 
-              // Mostrar TODOS los slots disponibles (WhatsApp soporta mensajes largos).
-              // El LLM necesita el listado completo para responder "¿está disponible las 4pm?".
               const lines: string[] = [];
+              // También construir lista interna de todos los slots para que el LLM pueda verificar horas exactas
+              const allSlotsList: string[] = [];
+
               for (const [date, times] of byDate) {
                 const sorted = [...times].sort();
-                const formatted = sorted.map(to12h).join(", ");
-                lines.push(`• ${date}: ${formatted}`);
+                sorted.forEach(t => allSlotsList.push(t));
+
+                // Agrupar consecutivos (gap ≤ 15 min) en rangos
+                const ranges: { start: string; end: string }[] = [];
+                let rangeStart = sorted[0];
+                let prev = sorted[0];
+                for (let k = 1; k < sorted.length; k++) {
+                  if (toMin(sorted[k]) - toMin(prev) > 15) {
+                    ranges.push({ start: rangeStart, end: prev });
+                    rangeStart = sorted[k];
+                  }
+                  prev = sorted[k];
+                }
+                ranges.push({ start: rangeStart, end: prev });
+
+                const rangeStr = ranges.map(r =>
+                  r.start === r.end ? to12h(r.start) : `${to12h(r.start)} – ${to12h(r.end)}`
+                ).join(" | ");
+                lines.push(`• ${date}: ${rangeStr}`);
               }
 
               // Nota sobre hora solicitada
               let extraNote = "";
               if (args.hora_solicitada) {
-                const reqInSlots = slots.some(s => s.time === args.hora_solicitada);
+                const reqInSlots = allSlotsList.includes(args.hora_solicitada);
                 if (reqInSlots) {
-                  extraNote = `\n\n✅ La hora solicitada (${args.hora_solicitada}) SÍ está disponible. Confirma con el cliente y procede a agendar.`;
+                  extraNote = `\n\n✅ ${to12h(args.hora_solicitada)} SÍ está disponible. Procede a agendar.`;
                 } else {
-                  extraNote = `\n\n⚠️ La hora solicitada (${args.hora_solicitada}) NO está en los slots de la API. La API a veces omite slots que sí son agendables — intenta agendar directamente con agendar_cita a esa hora. Si Barberly rechaza, ofrece las horas listadas arriba como alternativa.`;
+                  extraNote = `\n\n⚠️ ${to12h(args.hora_solicitada)} no aparece en los slots de la API pero puede ser agendable — intenta agendar_cita directamente a las ${args.hora_solicitada}. Si Barberly rechaza, ofrece los rangos listados arriba.`;
                 }
               }
-              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}\n\nAl agendar usa formato 24h (ej: 4:00 pm → 16:00, 5:00 pm → 17:00).${extraNote}`;
+
+              // Instrucción general: cliente puede pedir cualquier hora dentro de los rangos
+              const rangeInstruction = `\nCualquier hora dentro de estos rangos es válida para agendar (en intervalos de 15 min). Al agendar usa formato 24h (ej: 4:00 pm → 16:00). Si el cliente pide una hora específica no listada, intenta agendar_cita directamente — Barberly decidirá si es válida.`;
+              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}${rangeInstruction}${extraNote}`;
             }
           }
         }
