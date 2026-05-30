@@ -461,6 +461,14 @@ export async function getChatResponse(
         }
 
         else if (toolCall.function.name === "agendar_cita") {
+          // Bloquear si no se especificó un barbero — el cliente debe elegirlo explícitamente.
+          if (!args.barbero || args.barbero.trim() === "") {
+            agendarCitaCalled = true;
+            result = `ERROR: No se puede agendar sin que el cliente haya elegido un barbero específico. Pregúntale al cliente con cuál barbero quiere la cita y espera su respuesta antes de llamar agendar_cita.`;
+            toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+            continue;
+          }
+
           // Normalizar hora a formato HH:MM 24h
           // Acepta: "17", "17:00", "5pm", "5:00 pm", "A las 17", "las 5pm", "9 de la mañana"
           if (args.hora) {
