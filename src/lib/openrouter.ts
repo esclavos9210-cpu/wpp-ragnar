@@ -331,31 +331,51 @@ export async function getChatResponse(
                 const h12 = h % 12 || 12;
                 return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
               };
+
+              // Agrupar por fecha y limitar a 8 slots: los más cercanos a la hora pedida
               const byDate = new Map<string, string[]>();
               for (const s of slots) {
                 if (!byDate.has(s.date)) byDate.set(s.date, []);
-                byDate.get(s.date)!.push(to12h(s.time));
+                byDate.get(s.date)!.push(s.time); // guardar 24h para ordenar
               }
+
               const lines: string[] = [];
               for (const [date, times] of byDate) {
-                lines.push(`• ${date}: ${times.join(", ")}`);
+                // Si el cliente pidió una hora, ordenar por cercanía a ella
+                let sorted = [...times];
+                if (args.hora) {
+                  const [rh, rm] = args.hora.replace(/[^\d:]/g, "").split(":").map(Number);
+                  const reqMin = (rh || 0) * 60 + (rm || 0);
+                  sorted.sort((a, b) => {
+                    const [ah, am] = a.split(":").map(Number);
+                    const [bh, bm] = b.split(":").map(Number);
+                    return Math.abs(ah * 60 + am - reqMin) - Math.abs(bh * 60 + bm - reqMin);
+                  });
+                }
+                const displayed = sorted.slice(0, 8).sort(); // max 8, ordenados
+                lines.push(`• ${date}: ${displayed.map(to12h).join(", ")}`);
               }
-              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}\n\nUsa estos horarios exactamente al agendar. Para agendar, convierte al formato 24h (ej: "4:00 pm" → "16:00").`;
+              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}\n\nAl agendar usa formato 24h (ej: 4:00 pm → 16:00, 5:00 pm → 17:00).`;
             }
           }
         }
 
         else if (toolCall.function.name === "agendar_cita") {
-          // Normalizar hora: acepta "4:00 pm", "4pm", "16:00" → siempre "HH:MM" 24h
+          // Normalizar hora a formato HH:MM 24h
+          // Acepta: "17", "17:00", "5pm", "5:00 pm", "A las 17", "las 5pm"
           if (args.hora) {
-            const match = args.hora.match(/^(\d{1,2}):?(\d{2})?\s*(am|pm)$/i);
-            if (match) {
-              let h = parseInt(match[1]);
-              const m = parseInt(match[2] ?? "0");
-              const period = match[3].toLowerCase();
+            const raw = args.hora.trim();
+            // Extraer número y opcional am/pm
+            const m = raw.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+            if (m) {
+              let h = parseInt(m[1]);
+              const min = parseInt(m[2] ?? "0");
+              const period = m[3]?.toLowerCase();
               if (period === "pm" && h !== 12) h += 12;
-              if (period === "am" && h === 12) h = 0;
-              args.hora = `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+              else if (period === "am" && h === 12) h = 0;
+              // Sin am/pm: si h < 8 asumir pm (horario barbería)
+              else if (!period && h > 0 && h < 8) h += 12;
+              args.hora = `${h.toString().padStart(2, "0")}:${min.toString().padStart(2, "0")}`;
             }
           }
           const svcs = await getServices();
