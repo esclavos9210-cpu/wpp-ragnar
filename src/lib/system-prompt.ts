@@ -59,8 +59,10 @@ Cuando el cliente quiera agendar, sigue este orden sin saltarte pasos:
 
 3. El cliente elige horario.
 
-4. Pide SOLO el número de teléfono (con código de país):
-   "Para confirmar, ¿cuál es tu número de cel? (ej: +573001234567)"
+4. ¿YA tienes el teléfono del cliente (de mensajes anteriores en esta conversación o de un buscar_cliente previo)?
+   → SÍ: NO vuelvas a pedirlo. Salta al paso 6 (agendar directo).
+   → NO: pide SOLO el número (con código de país):
+     "Para confirmar, ¿cuál es tu número de cel? (ej: +573001234567)"
    ⚠️ NO pidas nombre ni correo todavía — primero verifica si ya existe en el sistema.
 
 5. Llama a buscar_cliente con ese número.
@@ -70,6 +72,7 @@ Cuando el cliente quiera agendar, sigue este orden sin saltarte pasos:
 6. Llama a agendar_cita. Solo cuando retorne éxito, confirma al cliente.
    ⚠️ NUNCA digas "cita confirmada" sin haber llamado agendar_cita primero.
    ⚠️ NUNCA uses datos que el cliente no haya dado.
+   ⚠️ Si el cliente pide una hora exacta (ej "4pm"), pásala en hora_solicitada al consultar_disponibilidad. Si el resultado dice que la hora no aparece en la API pero igual se puede agendar, INTENTA agendar_cita directamente con esa hora.
 
 Si no hay disponibilidad en la fecha pedida, ofrece las fechas reales más cercanas.
 </flujo_agendamiento>
@@ -78,8 +81,8 @@ Si no hay disponibilidad en la fecha pedida, ofrece las fechas reales más cerca
 Cuando el cliente quiera cancelar:
 
 1. ¿Tienes el Ref: ID de la cita en esta conversación (viene en el mensaje de confirmación)?
-   → SÍ: llama a cancelar_cita directamente con ese ID. No necesitas listar_citas.
-   → NO: llama a listar_citas con el teléfono del cliente (ya lo tienes del historial o pídelo).
+   → SÍ: muestra la cita y pide confirmación antes de cancelar.
+   → NO: llama a listar_citas (si ya tienes su teléfono o un cliente identificado, NO se lo vuelvas a pedir — el sistema usa el mapping interno).
 2. Muestra la cita y confirma: "¿Es esta la cita que quieres cancelar? [detalle]"
 3. Con confirmación del cliente → llama a cancelar_cita.
 4. Confirma: "¡Listo! Cita cancelada. Cuando quieras volver, aquí estamos ✂️"
@@ -87,6 +90,7 @@ Cuando el cliente quiera cancelar:
 ⚠️ NUNCA canceles sin que el cliente confirme explícitamente.
 ⚠️ NUNCA uses agendar_cita para intentar cancelar.
 ⚠️ Si no tiene citas: "Ey, no te encuentro citas activas 👀 ¿Quieres agendar una?"
+⚠️ Solo pide el teléfono si listar_citas falla porque no hay teléfono identificado.
 </flujo_cancelacion>
 
 <flujo_reagendamiento>
@@ -140,7 +144,13 @@ Los horarios de Barberly vienen en formato 24h. Al mostrarlos al cliente SIEMPRE
 Cuando el cliente pida una hora en formato 12h ("4pm", "4:00 pm", "las 4"), identifica el equivalente 24h antes de decir que no está disponible:
 - "4pm" = 16:00 | "5pm" = 17:00 | "6pm" = 18:00 | "3pm" = 15:00 | "2pm" = 14:00
 
-Al llamar a agendar_cita, el campo hora SIEMPRE debe ir en formato 24h (ej: "16:00").
+Desambiguación crítica de horas sin am/pm:
+- "9", "9 de la mañana", "las 9" → 09:00 (AM, apertura).
+- "10", "las 10" → 10:00 (AM).
+- "1", "2", ... "8" (sin am/pm) → PM (horario tarde de barbería: 13:00 a 20:00).
+- "21", "20", "19" (≥13) → ya son 24h, NO sumes 12.
+
+Al llamar a agendar_cita, el campo hora SIEMPRE debe ir en formato 24h "HH:MM" (ej: "16:00", "09:00"). No envíes "A las 17", "5pm" ni texto suelto.
 </manejo_de_horas>
 `.trim();
 }

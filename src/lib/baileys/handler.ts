@@ -67,12 +67,15 @@ export async function handleIncomingMessage(
   const { resolveLidAsync } = await import("./client");
   const sendJid = await resolveLidAsync(rawJid, 4_000);
 
-  // JID normalizado para la DB (siempre @s.whatsapp.net o @lid si no se resolvió)
-  const dbJid = sendJid.endsWith("@lid")
-    ? sendJid.replace("@lid", "@s.whatsapp.net")  // fallback: conservar como clave única
-    : sendJid;
+  // JID normalizado para la DB.
+  // - Si sendJid es @s.whatsapp.net → usarlo (es la clave canónica).
+  // - Si sendJid sigue siendo @lid (no se resolvió) → usar el @lid tal cual,
+  //   porque el "número" antes del @lid NO es un teléfono real, así que cambiar
+  //   el sufijo a @s.whatsapp.net produciría una clave incorrecta y rompería
+  //   futuros lookups cuando sí se resuelva.
+  const dbJid = sendJid;
 
-  console.log(`[handler] sendJid=${sendJid} dbJid=${dbJid}`);
+  console.log(`[handler] rawJid=${rawJid} sendJid=${sendJid} dbJid=${dbJid}`);
 
   const pushName = msg.pushName ?? "";
 

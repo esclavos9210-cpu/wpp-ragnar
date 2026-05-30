@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { scheduleAppointment, getServices, getAvailableSlots, getEmployees, searchCustomerByPhone, normalizePhone, getCustomerBookings, cancelBooking, getBookingById } from "./barberly";
 import { getSystemPrompt } from "./system-prompt";
-import { getCustomerMappingByWhatsApp, upsertCustomerMapping, setLastAppointmentId } from "./db";
+import { getCustomerMappingByWhatsApp, getCustomerMappingByPhone, upsertCustomerMapping, setLastAppointmentId } from "./db";
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY ?? "" });
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -120,8 +120,17 @@ export async function getChatResponse(
     { role: "user", content: newUserMessage },
   ];
 
-  // Detectar si el mensaje contiene un número de teléfono (≥10 dígitos, con o sin +código país)
-  const phoneInMessage = /(\+\d{1,3}[\s\-]?)?\d[\d\s\-]{9,}/.test(newUserMessage.replace(/[^0-9+\s\-]/g, " "));
+  // Detectar si el mensaje contiene un número de teléfono real (≥10 dígitos consecutivos
+  // o con separadores, pero no una fecha tipo "2026-05-30" ni hora "16:00").
+  // Quitamos dígitos que parecen fechas/horas antes de validar.
+  const stripped = newUserMessage
+    .replace(/\b\d{4}-\d{1,2}-\d{1,2}\b/g, " ")    // fechas YYYY-MM-DD
+    .replace(/\b\d{1,2}:\d{2}\b/g, " ")             // horas HH:MM
+    .replace(/[^0-9+\s\-]/g, " ");
+  const digitCount = (stripped.match(/\d/g) ?? []).length;
+  const phoneInMessage =
+    digitCount >= 10 &&
+    /(\+\d{1,3}[\s\-]?)?\d[\d\s\-]{9,}/.test(stripped);
 
   let toolChoice: OpenAI.Chat.Completions.ChatCompletionToolChoiceOption;
   if (phoneInMessage) {
@@ -140,6 +149,7 @@ export async function getChatResponse(
   });
 
   let agendarCitaCalled = false;
+  let cancelarCitaCalled = false;
 
   // Loop de tool calls (máximo 5 iteraciones — cancelar requiere listar + cancelar + responder)
   for (let i = 0; i < 5; i++) {
@@ -167,23 +177,30 @@ export async function getChatResponse(
         return "Disculpa, tuve un inconveniente. ¿Puedes repetir tu solicitud?";
       }
 
-      // Si el LLM genera confirmación sin haber llamado agendar_cita, bloquearlo
+      // Si el LLM genera confirmación de AGENDAMIENTO sin haber llamado agendar_cita, bloquearlo.
+      // Importante: las respuestas de cancelación ("¡Listo! Cita cancelada") NO deben bloquearse.
       const c = content.toLowerCase();
-      const looksLikeConfirmation =
-        c.includes("cita confirmada") ||
-        c.includes("está confirmada") ||
-        c.includes("confirmada para") ||
-        c.includes("cita está lista") ||
-        c.includes("cita agendada") ||
-        c.includes("te agendé") ||
-        c.includes("te agendamos") ||
-        c.includes("quedaste agendado") ||
-        c.includes("aquí va la info de tu cita") ||
-        c.includes("todo listo") ||
-        content.includes("✅") ||
-        (c.includes("servicio:") && c.includes("fecha:") && c.includes("hora:"));
-      if (looksLikeConfirmation && !agendarCitaCalled) {
-        console.warn("[openrouter] BLOCKED: confirmación sin agendar_cita");
+      const mentionsCancellation =
+        c.includes("cancel") ||      // cancelada, cancelar, cancelación
+        c.includes("anulada") ||
+        c.includes("anulé");
+      // Si ya se llamó cancelar_cita o el contenido es claramente sobre cancelación, no bloquear.
+      const skipGuard = agendarCitaCalled || cancelarCitaCalled || mentionsCancellation;
+      const looksLikeBookingConfirmation =
+        !skipGuard && (
+          c.includes("cita confirmada") ||
+          c.includes("está confirmada") ||
+          c.includes("confirmada para") ||
+          c.includes("cita agendada") ||
+          c.includes("te agendé") ||
+          c.includes("te agendamos") ||
+          c.includes("quedaste agendado") ||
+          c.includes("aquí va la info de tu cita") ||
+          (c.includes("servicio:") && c.includes("fecha:") && c.includes("hora:")) ||
+          (content.includes("✅") && (c.includes("cita") || c.includes("agend")))
+        );
+      if (looksLikeBookingConfirmation) {
+        console.warn("[openrouter] BLOCKED: confirmación de agendamiento sin agendar_cita");
         return "Disculpa, tuve un problema al registrar tu cita. ¿Puedes intentarlo de nuevo?";
       }
       return content;
@@ -200,7 +217,15 @@ export async function getChatResponse(
 
         if (toolCall.function.name === "listar_citas") {
           const phone = args.telefono ?? "";
-          const mapping = whatsappJid ? getCustomerMappingByWhatsApp.get({ whatsapp_number: whatsappJid }) : null;
+          let mapping = whatsappJid ? getCustomerMappingByWhatsApp.get({ whatsapp_number: whatsappJid }) : null;
+          // Fallback: si no hay mapping por JID, intentar por teléfono normalizado del argumento
+          if (!mapping && phone) {
+            const phoneKey = normalizePhone(phone);
+            if (phoneKey) {
+              mapping = getCustomerMappingByPhone.get({ phone_normalized: phoneKey }) ?? null;
+              if (mapping) console.log(`[listar_citas] mapping encontrado por phone=${phoneKey}`);
+            }
+          }
 
           // Fecha de hoy en Colombia (UTC-5) como string "YYYY-MM-DD"
           const todayColombiaStr = new Date(
@@ -262,6 +287,7 @@ export async function getChatResponse(
             result = `Necesitas el ID de la cita para cancelar. Llama primero a listar_citas.`;
           } else {
             const cancelResult = await cancelBooking(citaId);
+            cancelarCitaCalled = true;
             result = cancelResult.message;
           }
         }
@@ -322,8 +348,12 @@ export async function getChatResponse(
                 const h12 = h % 12 || 12;
                 return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
               };
+              const toMin = (t: string) => {
+                const [h, m] = t.split(":").map(Number);
+                return h * 60 + m;
+              };
 
-              // Agrupar por fecha y mostrar todos los slots disponibles
+              // Agrupar por fecha
               const byDate = new Map<string, string[]>();
               for (const s of slots) {
                 if (!byDate.has(s.date)) byDate.set(s.date, []);
@@ -331,16 +361,52 @@ export async function getChatResponse(
               }
 
               const lines: string[] = [];
-              for (const [date, times] of byDate) {
-                const sorted = [...times].sort();
-                lines.push(`• ${date}: ${sorted.map(to12h).join(", ")}`);
+
+              // Si el cliente pidió hora específica: mostrar las 6 más cercanas
+              if (args.hora_solicitada) {
+                const target = toMin(args.hora_solicitada);
+                for (const [date, times] of byDate) {
+                  const sorted = [...times].sort();
+                  const closest = sorted
+                    .map(t => ({ t, diff: Math.abs(toMin(t) - target) }))
+                    .sort((a, b) => a.diff - b.diff)
+                    .slice(0, 6)
+                    .map(x => x.t)
+                    .sort();
+                  lines.push(`• ${date}: ${closest.map(to12h).join(", ")}`);
+                }
+              } else {
+                // Sin hora pedida: agrupar en rangos compactos (slots consecutivos)
+                for (const [date, times] of byDate) {
+                  const sorted = [...times].sort();
+                  if (sorted.length === 0) continue;
+                  // Detectar paso (en min) entre slots consecutivos para agrupar
+                  const ranges: Array<[string, string]> = [];
+                  let rangeStart = sorted[0];
+                  let prev = sorted[0];
+                  for (let k = 1; k < sorted.length; k++) {
+                    const gap = toMin(sorted[k]) - toMin(prev);
+                    // Cierre de rango si el salto > 60 min (1h)
+                    if (gap > 60) {
+                      ranges.push([rangeStart, prev]);
+                      rangeStart = sorted[k];
+                    }
+                    prev = sorted[k];
+                  }
+                  ranges.push([rangeStart, prev]);
+                  const formatted = ranges
+                    .map(([a, b]) => (a === b ? to12h(a) : `${to12h(a)} - ${to12h(b)}`))
+                    .join(", ");
+                  lines.push(`• ${date}: ${formatted}`);
+                }
               }
-              // Si el cliente pidió una hora específica que no está en los slots, indicar que igual intente agendar
+
+              // Si el cliente pidió una hora específica que no está en los slots, hint para intentar igual
               let extraNote = "";
               if (args.hora_solicitada) {
                 const reqInSlots = slots.some(s => s.time === args.hora_solicitada);
                 if (!reqInSlots) {
-                  extraNote = `\n\n⚠️ IMPORTANTE: El cliente solicitó las ${args.hora_solicitada} pero no aparece en los slots de la API. Esto puede ser una limitación de la API de consulta. Intenta agendar directamente a las ${args.hora_solicitada} con agendar_cita — el sistema de reservas puede aceptarla aunque no aparezca aquí. Si falla, ofrece los horarios listados arriba.`;
+                  extraNote = `\n\n⚠️ El cliente pidió ${args.hora_solicitada} y NO aparece en los slots de la API. La API de consulta a veces omite slots que sí son agendables. Intenta agendar directamente a las ${args.hora_solicitada} con agendar_cita; si falla, ofrece los más cercanos (los listados arriba ya son los 6 más próximos a su hora pedida).`;
                 }
               }
               result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}\n\nAl agendar usa formato 24h (ej: 4:00 pm → 16:00, 5:00 pm → 17:00).${extraNote}`;
@@ -350,21 +416,38 @@ export async function getChatResponse(
 
         else if (toolCall.function.name === "agendar_cita") {
           // Normalizar hora a formato HH:MM 24h
-          // Acepta: "17", "17:00", "5pm", "5:00 pm", "A las 17", "las 5pm"
+          // Acepta: "17", "17:00", "5pm", "5:00 pm", "A las 17", "las 5pm", "9 de la mañana"
           if (args.hora) {
-            const raw = args.hora.trim();
+            const raw = args.hora.trim().toLowerCase();
             // Extraer número y opcional am/pm
-            const m = raw.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+            const m = raw.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.?m\.?|p\.?m\.?)?/i);
             if (m) {
               let h = parseInt(m[1]);
               const min = parseInt(m[2] ?? "0");
-              const period = m[3]?.toLowerCase();
+              let periodRaw = (m[3] ?? "").toLowerCase().replace(/\./g, "");
+              // Detectar hints implícitos
+              if (!periodRaw) {
+                if (/(noche|tarde|pm)/.test(raw)) periodRaw = "pm";
+                else if (/(mañana|manana|am)/.test(raw)) periodRaw = "am";
+              }
+              const period = periodRaw === "am" ? "am" : periodRaw === "pm" ? "pm" : "";
               if (period === "pm" && h !== 12) h += 12;
               else if (period === "am" && h === 12) h = 0;
-              // Sin am/pm: si h < 8 asumir pm (horario barbería)
-              else if (!period && h > 0 && h < 8) h += 12;
+              // Sin am/pm:
+              //   - h >= 13 → ya es 24h (15, 17, 21)
+              //   - h en [9..12] → AM (horario apertura: 9am-12pm)
+              //   - h en [1..8] → PM (1pm-8pm: horario tarde-noche barbería)
+              //   - h == 0 → 0:00 (no debería pasar)
+              else if (!period && h > 0 && h <= 8) h += 12;
+              if (h > 23) h = h % 24;
               args.hora = `${h.toString().padStart(2, "0")}:${min.toString().padStart(2, "0")}`;
             }
+          }
+          // Sanity check: fecha YYYY-MM-DD
+          if (args.fecha && !/^\d{4}-\d{2}-\d{2}$/.test(args.fecha)) {
+            result = `Formato de fecha inválido: "${args.fecha}". Necesito YYYY-MM-DD.`;
+            toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+            continue;
           }
           const svcs = await getServices();
           const svcMatch = svcs.find((s) =>
@@ -381,7 +464,18 @@ export async function getChatResponse(
             let resolvedPhone = args.telefono_cliente ?? clientPhone ?? "";
 
             if (whatsappJid) {
-              const mapping = getCustomerMappingByWhatsApp.get({ whatsapp_number: whatsappJid });
+              let mapping = getCustomerMappingByWhatsApp.get({ whatsapp_number: whatsappJid });
+              // Fallback: si no hay mapping por JID (común con @lid sin resolver),
+              // buscar por teléfono normalizado del mensaje actual.
+              if (!mapping && resolvedPhone) {
+                const phoneKey = normalizePhone(resolvedPhone);
+                if (phoneKey) {
+                  mapping = getCustomerMappingByPhone.get({ phone_normalized: phoneKey });
+                  if (mapping) {
+                    console.log(`[customer-reused] agendar: encontrado por phone=${phoneKey} (JID ${whatsappJid} sin mapping)`);
+                  }
+                }
+              }
               if (mapping) {
                 knownCustomerId = mapping.barberly_customer_id;
                 if (mapping.nombre) resolvedName = mapping.nombre;

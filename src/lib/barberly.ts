@@ -211,23 +211,28 @@ export async function getAvailableSlots(
     ? [employeeId]
     : (await getEmployees()).map(e => e.Id);
 
+  type DayShape = { Date: string; Enabled: boolean; TimeSlots: Array<{ From: string }> };
+
   function extractTimesForDay(
     raw: unknown,
     d: string,
     empLabel: string,
   ): string[] {
     const times: string[] = [];
+    if (!Array.isArray(raw)) return times;
     // Normalizar: la API puede devolver Array<Array<Day>> o Array<Day>
-    const weeks: Array<Array<{ Date: string; Enabled: boolean; TimeSlots: Array<{ From: string }> }>> =
-      Array.isArray(raw)
-        ? Array.isArray(raw[0]) ? raw as never : [raw as never]
-        : [];
+    const weeks: DayShape[][] = Array.isArray(raw[0])
+      ? (raw as DayShape[][])
+      : [raw as DayShape[]];
 
     for (const week of weeks) {
+      if (!Array.isArray(week)) continue;
       for (const day of week) {
         if (!day || typeof day !== "object" || !("Date" in day)) continue;
+        if (typeof day.Date !== "string") continue;
         if (day.Date.startsWith(d) && day.Enabled && day.TimeSlots?.length) {
           for (const ts of day.TimeSlots) {
+            if (!ts?.From || typeof ts.From !== "string") continue;
             const time24 = ts.From.split("T")[1]?.substring(0, 5);
             if (!time24) continue;
             if (d === todayStr) {
@@ -254,7 +259,7 @@ export async function getAvailableSlots(
         apiFetch(
           `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}&employeeId=${eid}`,
           { headers: authHeaders(token) },
-        ).then(r => r.ok ? r.json() : null)
+        ).then(r => r.ok ? r.json() : null).catch(() => null)
       )
     );
 
@@ -264,6 +269,19 @@ export async function getAvailableSlots(
       if (r.status !== "fulfilled" || !r.value) continue;
       const empLabel = empIds[j] ?? "?";
       for (const t of extractTimesForDay(r.value, d, empLabel)) timeSet.add(t);
+    }
+
+    // Si pidieron empleado específico y no hubo resultados, hacer fallback SIN employeeId
+    // (puede ser que la API filtre slots de más con employeeId)
+    if (timeSet.size === 0 && employeeId && i === 0) {
+      console.log(`[slots] ${d} empId=${employeeId} sin slots → fallback sin filtro de empleado`);
+      const fallbackRes = await apiFetch(
+        `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}`,
+        { headers: authHeaders(token) },
+      ).then(r => r.ok ? r.json() : null).catch(() => null);
+      if (fallbackRes) {
+        for (const t of extractTimesForDay(fallbackRes, d, "no-emp-filter")) timeSet.add(t);
+      }
     }
 
     if (timeSet.size > 0) {
