@@ -64,11 +64,11 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "cancelar_cita",
-      description: "Cancela una cita existente. SIEMPRE llama a listar_citas primero para obtener el cita_id. NUNCA uses agendar_cita para cancelar.",
+      description: "Cancela una cita existente. Usa el cita_id del historial de conversación (Ref: ID del mensaje de confirmación) o de listar_citas. NUNCA uses agendar_cita para cancelar.",
       parameters: {
         type: "object",
         properties: {
-          cita_id: { type: "string", description: "ID de la cita a cancelar (obtenido de listar_citas)" },
+          cita_id: { type: "string", description: "ID de la cita a cancelar (del Ref: en el mensaje de confirmación o de listar_citas)" },
         },
         required: ["cita_id"],
       },
