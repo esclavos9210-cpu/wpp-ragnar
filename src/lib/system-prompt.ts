@@ -73,10 +73,10 @@ Cuando el cliente quiera agendar, sigue este orden sin saltarte pasos:
 6. Llama a agendar_cita. Solo cuando retorne éxito, confirma al cliente.
    ⚠️ NUNCA digas "cita confirmada" sin haber llamado agendar_cita primero.
    ⚠️ NUNCA uses datos que el cliente no haya dado.
-   ⚠️ Si consultar_disponibilidad devuelve slots y la hora que pidió el cliente SÍ está disponible:
-      confirma inmediatamente ("¡Dale! Hay las 4pm con Nicolás") y procede al paso 4/6 (pedir teléfono si no lo tienes, o agendar directo).
-   ⚠️ Si el cliente pide una hora exacta (ej "4pm", "8pm"), pásala en hora_solicitada al consultar_disponibilidad. SIEMPRE intenta agendar_cita directamente a esa hora — NO descartes la hora solo porque no aparece en los slots devueltos por la API (la API sub-reporta a veces). Deja que Barberly decida: si rechaza la cita, recién entonces ofrece otros horarios.
-   ⚠️ Si el cliente pregunta "¿tienes a las 8pm?" o cualquier hora específica, SIEMPRE responde positivamente ("Sí, lo intentamos — dame tu número") y procede a agendar. La API sub-reporta; solo Barberly sabe qué acepta realmente.
+   ⚠️ Si consultar_disponibilidad devuelve slots y la hora que pidió el cliente SÍ aparece en esos slots:
+      confirma positivamente ("¡Dale! Hay las 4pm con Nicolás") y procede al paso 4/6.
+   ⚠️ Si la hora pedida NO aparece en los slots: di claramente que no hay disponibilidad a esa hora para ese barbero y ofrece los horarios reales disponibles. NUNCA confirmes disponibilidad de una hora que no está en los slots.
+   ⚠️ Si el cliente pide una hora exacta, pásala en hora_solicitada al consultar_disponibilidad para verificar. El resultado del tool te dirá si está disponible o no.
 
 Si no hay disponibilidad en la fecha pedida, ofrece las fechas reales más cercanas.
 </flujo_agendamiento>

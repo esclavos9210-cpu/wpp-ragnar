@@ -443,25 +443,19 @@ export async function getChatResponse(
               if (args.hora_solicitada) {
                 const reqInSlots = allSlotsList.includes(args.hora_solicitada);
                 if (reqInSlots) {
-                  extraNote = `\n\n✅ ${to12h(args.hora_solicitada)} SÍ aparece como disponible. Procede a agendar_cita directamente.`;
+                  extraNote = `\n\n✅ ${to12h(args.hora_solicitada)} SÍ está disponible. Procede a agendar_cita directamente.`;
                 } else {
-                  extraNote = `\n\n⚠️ ${to12h(args.hora_solicitada)} no aparece en los slots devueltos por la API, pero la API a veces sub-reporta. INTENTA agendar_cita directamente a las ${args.hora_solicitada}. Solo si Barberly responde con error, ofrece los rangos listados arriba.`;
+                  extraNote = `\n\n❌ ${to12h(args.hora_solicitada)} NO está disponible. Informa al cliente que no hay disponibilidad a esa hora y ofrécele los horarios reales listados arriba.`;
                 }
               }
 
               // Etiqueta de barbero si se filtró por uno específico (usar nombre real de Barberly)
               const barberLabel = matchedEmpName ? ` (${matchedEmpName})` : "";
 
-              // Primer y último slot exactos — crítico para que el LLM responda correctamente
-              // cuando el cliente pregunta por horas fuera del rango (ej: "¿tienes a las 8pm?")
-              const firstSlot = to12h(allSlotsList[0]);
-              const lastSlot = to12h(allSlotsList[allSlotsList.length - 1]);
               const totalSlots = allSlotsList.length;
+              const instruction = `\n\nINSTRUCCIÓN: estos son los únicos horarios disponibles. Si el cliente pide una hora que NO aparece aquí, dile que no hay disponibilidad a esa hora y ofrece los horarios reales. Al agendar usa formato 24h (8pm → 20:00, 4pm → 16:00).`;
 
-              const summary = `\n\nTotal: ${totalSlots} horarios disponibles. Primer slot de la API: ${firstSlot}.\n⚠️ ADVERTENCIA: la API de Barberly sub-reporta — puede haber horarios adicionales NO listados que sí son agendables (ejemplo: hasta 30 min después del último slot mostrado). NO uses esta lista para rechazar horas.`;
-              const instruction = `\n\nCOMPORTAMIENTO OBLIGATORIO:\n- Si el cliente pregunta por UNA hora específica (ej: "¿tienes a las 8pm?"), responde POSITIVAMENTE ("Sí, lo intentamos") y pide su teléfono para proceder a agendar.\n- NUNCA digas "no hay disponibilidad a las X" basándote solo en esta lista.\n- Solo reporta "no disponible" cuando Barberly RECHACE el intento real de agendar_cita.\n- Al agendar usa formato 24h (8pm → 20:00, 7:45pm → 19:45, 4pm → 16:00).`;
-
-              result = `Horarios disponibles para "${svcMatch.Name}"${barberLabel}:\n${lines.join("\n")}${summary}${instruction}${extraNote}`;
+              result = `Horarios disponibles para "${svcMatch.Name}"${barberLabel} (${totalSlots} slots):\n${lines.join("\n")}${instruction}${extraNote}`;
             }
           }
         }
