@@ -73,16 +73,6 @@ db.exec(`
 try { db.exec(`ALTER TABLE customer_mapping ADD COLUMN last_appointment_id TEXT`); } catch {}
 try { db.exec(`ALTER TABLE connection_state ADD COLUMN restart_requested INTEGER NOT NULL DEFAULT 0`); } catch {}
 
-// Tabla para recordatorios enviados — evita duplicados
-try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sent_reminders (
-      booking_id  TEXT PRIMARY KEY,
-      sent_at     INTEGER NOT NULL DEFAULT (unixepoch())
-    );
-  `);
-} catch {}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export type ConversationMode = "AI" | "HUMAN";
@@ -255,15 +245,6 @@ export const upsertCustomerMapping = db.prepare<
      email  = CASE WHEN excluded.email  != '' THEN excluded.email  ELSE customer_mapping.email  END,
      phone_normalized = CASE WHEN excluded.phone_normalized != '' THEN excluded.phone_normalized ELSE customer_mapping.phone_normalized END,
      updated_at = unixepoch()`
-);
-
-// Recordatorios enviados
-export const wasReminderSent = db.prepare<{ booking_id: string }, { booking_id: string }>(
-  `SELECT booking_id FROM sent_reminders WHERE booking_id = @booking_id`
-);
-
-export const markReminderSent = db.prepare<{ booking_id: string }, void>(
-  `INSERT OR IGNORE INTO sent_reminders(booking_id) VALUES (@booking_id)`
 );
 
 export default db;
