@@ -366,18 +366,29 @@ export async function getChatResponse(
             void getLocationSettings().catch(() => null);
             void getServiceDetails(svcMatch.Id).catch(() => null);
             let empId: string | undefined;
+            let matchedEmpName: string | undefined;
             if (args.barbero) {
               const emps = await getEmployees();
-              const normalize = (s: string) =>
-                s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-              empId = emps.find((e) =>
-                normalize(e.FullName).includes(normalize(args.barbero))
-              )?.Id;
-              if (!empId) {
+              const norm = (s: string) =>
+                s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+              const normSearch = norm(args.barbero);
+              // Exact includes match
+              let matchedEmp = emps.find((e) => norm(e.FullName).includes(normSearch));
+              // Fuzzy fallback: prefix match (≥5 chars) — handles "Davinson" → "Davison"
+              if (!matchedEmp && normSearch.length >= 5) {
+                const prefix = normSearch.slice(0, 5);
+                matchedEmp = emps.find((e) => {
+                  const firstName = norm(e.FullName).split(/\s+/)[0];
+                  return firstName.startsWith(prefix) || normSearch.startsWith(firstName.slice(0, 5));
+                });
+              }
+              if (!matchedEmp) {
                 result = `Barbero "${args.barbero}" no encontrado en el equipo. Barberos activos: ${emps.map((e) => e.FullName).join(", ")}. Pídele al cliente que confirme el nombre.`;
                 toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
                 continue;
               }
+              empId = matchedEmp.Id;
+              matchedEmpName = matchedEmp.FullName;
             }
             const slots = await getAvailableSlots(svcMatch.Id, args.fecha, empId);
             if (slots.length === 0) {
@@ -438,8 +449,8 @@ export async function getChatResponse(
                 }
               }
 
-              // Etiqueta de barbero si se filtró por uno específico
-              const barberLabel = args.barbero ? ` (${args.barbero})` : "";
+              // Etiqueta de barbero si se filtró por uno específico (usar nombre real de Barberly)
+              const barberLabel = matchedEmpName ? ` (${matchedEmpName})` : "";
 
               // Primer y último slot exactos — crítico para que el LLM responda correctamente
               // cuando el cliente pregunta por horas fuera del rango (ej: "¿tienes a las 8pm?")
@@ -534,19 +545,28 @@ export async function getChatResponse(
             }
 
             let empId: string | undefined;
+            let bookingEmpName: string | undefined;
             if (args.barbero) {
               const emps = await getEmployees();
-              const normalize = (s: string) =>
-                s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-              empId = emps.find((e) =>
-                normalize(e.FullName).includes(normalize(args.barbero))
-              )?.Id;
-              if (!empId) {
+              const norm = (s: string) =>
+                s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+              const normSearch = norm(args.barbero);
+              let matchedEmp = emps.find((e) => norm(e.FullName).includes(normSearch));
+              if (!matchedEmp && normSearch.length >= 5) {
+                const prefix = normSearch.slice(0, 5);
+                matchedEmp = emps.find((e) => {
+                  const firstName = norm(e.FullName).split(/\s+/)[0];
+                  return firstName.startsWith(prefix) || normSearch.startsWith(firstName.slice(0, 5));
+                });
+              }
+              if (!matchedEmp) {
                 agendarCitaCalled = true;
                 result = `Barbero "${args.barbero}" no encontrado en el sistema. Barberos disponibles: ${emps.map((e) => e.FullName).join(", ")}. No se puede agendar sin confirmar el barbero.`;
                 toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
                 continue;
               }
+              empId = matchedEmp.Id;
+              bookingEmpName = matchedEmp.FullName;
             }
 
             const appt = await scheduleAppointment({
@@ -585,6 +605,7 @@ export async function getChatResponse(
               result = `❌ NO se agendó la cita. Razón: ${appt.message}\n\nLA CITA NO QUEDÓ REGISTRADA. Genera AHORA una respuesta de texto al cliente explicando que ese horario no está disponible y ofrécele los horarios que ya obtuviste anteriormente. NO llames más herramientas.`;
             } else {
               result = appt.message;
+              if (bookingEmpName) result += `\nBarbero confirmado: ${bookingEmpName}`;
             }
           }
         }
