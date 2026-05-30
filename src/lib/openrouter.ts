@@ -33,6 +33,14 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "consultar_barberos",
+      description: "Obtiene la lista de barberos que actualmente trabajan en Barbería Ragnar. Úsala cuando el cliente pregunte si un barbero específico trabaja aquí, quiénes son los barberos, o quiera saber el equipo disponible.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "consultar_disponibilidad",
       description: "OBLIGATORIO: Llama esta función SIEMPRE que el cliente mencione disponibilidad, una fecha o una hora. NUNCA respondas sobre horarios sin llamarla primero.",
       parameters: {
@@ -332,6 +340,17 @@ export async function getChatResponse(
           result = svcs
             .map((s) => `• ${s.Name} — $${s.Price.toLocaleString("es-CO")} COP (${s.Duration} min)`)
             .join("\n");
+        }
+
+        else if (toolCall.function.name === "consultar_barberos") {
+          const emps = await getEmployees();
+          if (emps.length === 0) {
+            result = "No se encontraron barberos activos en este momento.";
+          } else {
+            result = `Barberos activos en Barbería Ragnar (${emps.length} en total):\n` +
+              emps.map((e) => `• ${e.FullName}`).join("\n") +
+              "\n\nSolo estos barberos trabajan actualmente. Si el cliente pregunta por uno que no aparece aquí, no trabaja con nosotros.";
+          }
         }
 
         else if (toolCall.function.name === "consultar_disponibilidad") {
