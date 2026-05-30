@@ -204,50 +204,62 @@ export async function getAvailableSlots(
   const todayStr = nowColombia.toISOString().split("T")[0];
   const nowMinutes = nowColombia.getHours() * 60 + nowColombia.getMinutes();
 
-  for (let i = 0; i <= MAX_DAYS_FORWARD; i++) {
-    const d = addDays(requestedDate, i);
-    const [year, month] = d.split("-").map(Number);
+  // Sin barbero específico: consultar cada empleado en paralelo y unir resultados.
+  // El endpoint sin employeeId devuelve intersección (todos libres), no unión.
+  const empIds: string[] = employeeId
+    ? [employeeId]
+    : (await getEmployees()).map(e => e.Id);
 
-    const url =
-      `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?` +
-      `serviceIds=${serviceId}${employeeId ? `&employeeId=${employeeId}` : ""}`;
-
-    const res = await apiFetch(url, { headers: authHeaders(token) });
-    if (!res.ok) continue;
-
-    const weeks = (await res.json()) as Array<Array<{
-      Date: string;
-      Enabled: boolean;
-      TimeSlots: Array<{ From: string }>;
-    }>>;
-
-    const daySlots: TimeSlotOption[] = [];
+  function extractTimesForDay(
+    weeks: Array<Array<{ Date: string; Enabled: boolean; TimeSlots: Array<{ From: string }> }>>,
+    d: string,
+  ): string[] {
+    const times: string[] = [];
     for (const week of weeks) {
       for (const day of week) {
         if (day.Date.startsWith(d) && day.Enabled && day.TimeSlots.length) {
-          const rawTimes = day.TimeSlots.map(ts => ts.From.split("T")[1]?.substring(0, 5) ?? "?").join(", ");
-          console.log(`[slots-raw] ${d} empId=${employeeId ?? "auto"} nowMinutes=${nowMinutes} → ${day.TimeSlots.length} raw slots: ${rawTimes}`);
           for (const ts of day.TimeSlots) {
-            // From = "2026-05-28T10:00:00" (hora Colombia)
             const time24 = ts.From.split("T")[1]?.substring(0, 5);
             if (!time24) continue;
-
-            // Si es hoy, descartar horarios que ya pasaron
             if (d === todayStr) {
               const [h, m] = time24.split(":").map(Number);
               if (h * 60 + m < nowMinutes) continue;
             }
-
-            daySlots.push({ date: d, time: time24 });
+            times.push(time24);
           }
-          const allTimes = daySlots.map(s => s.time).join(", ");
-          console.log(`[slots] ${d} empId=${employeeId ?? "auto"} → ${daySlots.length} slots: ${allTimes}`);
           break;
         }
       }
     }
+    return times;
+  }
 
-    if (daySlots.length > 0) return daySlots;
+  for (let i = 0; i <= MAX_DAYS_FORWARD; i++) {
+    const d = addDays(requestedDate, i);
+    const [year, month] = d.split("-").map(Number);
+
+    // Consultar todos los empleados en paralelo
+    const responses = await Promise.allSettled(
+      empIds.map(eid =>
+        apiFetch(
+          `${BASE_URL}/api/bookings/location/${LOCATION_ID}/${year}/${month}/dates?serviceIds=${serviceId}&employeeId=${eid}`,
+          { headers: authHeaders(token) },
+        ).then(r => r.ok ? r.json() : null)
+      )
+    );
+
+    const timeSet = new Set<string>();
+    for (const r of responses) {
+      if (r.status !== "fulfilled" || !r.value) continue;
+      const weeks = r.value as Array<Array<{ Date: string; Enabled: boolean; TimeSlots: Array<{ From: string }> }>>;
+      for (const t of extractTimesForDay(weeks, d)) timeSet.add(t);
+    }
+
+    if (timeSet.size > 0) {
+      const times = [...timeSet].sort();
+      console.log(`[slots] ${d} empId=${employeeId ?? "union"} → ${times.length} slots: ${times.join(", ")}`);
+      return times.map(time => ({ date: d, time }));
+    }
   }
 
   return [];

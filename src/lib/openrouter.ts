@@ -191,17 +191,21 @@ export async function getChatResponse(
           const phone = args.telefono ?? "";
           let mapping = whatsappJid ? getCustomerMappingByWhatsApp.get({ whatsapp_number: whatsappJid }) : null;
 
+          // Fecha de hoy en Colombia (UTC-5) como string "YYYY-MM-DD"
+          const todayColombiaStr = new Date(
+            new Date().toLocaleString("en-US", { timeZone: "America/Bogota" })
+          ).toISOString().split("T")[0];
+
           // Intentar con el last_appointment_id guardado localmente
           if (mapping?.last_appointment_id) {
             console.log(`[listar_citas] usando last_appointment_id=${mapping.last_appointment_id}`);
             const booking = await getBookingById(mapping.last_appointment_id);
             if (booking) {
-              const bookingDate = new Date(booking.TimeSlot.Date);
-              const now = new Date();
-              if (bookingDate >= now) {
+              const bookingDateStr = booking.TimeSlot.Date.split("T")[0];
+              if (bookingDateStr >= todayColombiaStr) {
                 const h = Math.floor(booking.TimeSlot.StartMinutesOfDay / 60).toString().padStart(2, "0");
                 const m = (booking.TimeSlot.StartMinutesOfDay % 60).toString().padStart(2, "0");
-                result = `Cita próxima del cliente:\n• ID: ${booking.Id} | Fecha: ${booking.TimeSlot.Date.split("T")[0]} | Hora: ${h}:${m}`;
+                result = `Cita próxima del cliente:\n• ID: ${booking.Id} | Fecha: ${bookingDateStr} | Hora: ${h}:${m}`;
               } else {
                 result = `El cliente no tiene citas próximas en Barberly (la última ya pasó).`;
               }
@@ -219,7 +223,7 @@ export async function getChatResponse(
               result = `No encontré al cliente con teléfono ${phone} en Barberly. Pídele que confirme su número.`;
             } else {
               const bookings = await getCustomerBookings(customerId);
-              const upcoming = bookings.filter((b) => new Date(b.TimeSlot.Date) >= new Date());
+              const upcoming = bookings.filter((b) => b.TimeSlot.Date.split("T")[0] >= todayColombiaStr);
               if (upcoming.length === 0) {
                 result = `El cliente no tiene citas próximas en Barberly.`;
               } else {
