@@ -179,6 +179,70 @@ export async function getEmployees(): Promise<BarbEmployee[]> {
   return res.json();
 }
 
+// ─── Probes de configuración (buffer, settings) ──────────────────────────────
+// Estos endpoints son tentativos — sirven para diagnosticar si Barberly tiene
+// configurado un buffer entre citas (que es lo que recorta el último slot del día).
+
+let locationSettingsCache: { data: unknown; expiresAt: number } | null = null;
+let serviceSettingsCache: Map<string, { data: unknown; expiresAt: number }> = new Map();
+
+/** Intenta obtener la configuración del location (puede contener BufferTime, OperatingHours, etc.). */
+export async function getLocationSettings(): Promise<unknown | null> {
+  if (locationSettingsCache && Date.now() < locationSettingsCache.expiresAt) {
+    return locationSettingsCache.data;
+  }
+  const token = await getToken();
+  // Probar varias rutas — la API no está documentada
+  const candidates = [
+    `${BASE_URL}/api/locations/${LOCATION_ID}`,
+    `${BASE_URL}/api/location/${LOCATION_ID}`,
+    `${BASE_URL}/api/locations`,
+  ];
+  for (const url of candidates) {
+    try {
+      const res = await apiFetch(url, { headers: authHeaders(token) });
+      if (!res.ok) {
+        console.log(`[probe-location] ${url} → ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      console.log(`[probe-location] ${url} → OK, keys: ${Object.keys(data ?? {}).join(", ").slice(0, 200)}`);
+      locationSettingsCache = { data, expiresAt: Date.now() + 30 * 60 * 1000 };
+      return data;
+    } catch (e) {
+      console.log(`[probe-location] ${url} → error: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  return null;
+}
+
+/** Intenta obtener la configuración detallada de un servicio (puede contener BufferTime). */
+export async function getServiceDetails(serviceId: string): Promise<unknown | null> {
+  const cached = serviceSettingsCache.get(serviceId);
+  if (cached && Date.now() < cached.expiresAt) return cached.data;
+  const token = await getToken();
+  const candidates = [
+    `${BASE_URL}/api/services/${serviceId}`,
+    `${BASE_URL}/api/service/${serviceId}`,
+  ];
+  for (const url of candidates) {
+    try {
+      const res = await apiFetch(url, { headers: authHeaders(token) });
+      if (!res.ok) {
+        console.log(`[probe-service] ${url} → ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      console.log(`[probe-service] ${url} → OK, keys: ${Object.keys(data ?? {}).join(", ").slice(0, 200)}`);
+      serviceSettingsCache.set(serviceId, { data, expiresAt: Date.now() + 30 * 60 * 1000 });
+      return data;
+    } catch (e) {
+      console.log(`[probe-service] ${url} → error: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  return null;
+}
+
 // ─── Disponibilidad ───────────────────────────────────────────────────────────
 
 export interface TimeSlotOption {
@@ -200,10 +264,22 @@ export async function getAvailableSlots(
 ): Promise<TimeSlotOption[]> {
   const token = await getToken();
 
-  // Hora actual en Colombia (UTC-5, sin DST)
-  const nowColombia = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Bogota" }));
-  const todayStr = nowColombia.toISOString().split("T")[0];
-  const nowMinutes = nowColombia.getHours() * 60 + nowColombia.getMinutes();
+  // Hora actual en Colombia (UTC-5, sin DST) — usar Intl.DateTimeFormat para evitar
+  // dependencia del timezone del servidor.
+  const partsArr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const parts: Record<string, string> = {};
+  for (const p of partsArr) parts[p.type] = p.value;
+  const todayStr = `${parts.year}-${parts.month}-${parts.day}`;
+  const nowMinutes = parseInt(parts.hour, 10) * 60 + parseInt(parts.minute, 10);
+  console.log(`[slots] now Colombia: ${todayStr} ${parts.hour}:${parts.minute} (nowMinutes=${nowMinutes})`);
 
   // Estrategia:
   // - Si employeeId está especificado: consultar AMBOS (con y sin employeeId) y unir.
@@ -281,6 +357,10 @@ export async function getAvailableSlots(
       }
     }
 
+    for (const q of queries) {
+      console.log(`[slots-fetch] ${d} URL=${q.url}`);
+    }
+
     const responses = await Promise.allSettled(
       queries.map(q =>
         apiFetch(q.url, { headers: authHeaders(token) })
@@ -303,7 +383,10 @@ export async function getAvailableSlots(
 
     if (timeSet.size > 0) {
       const times = [...timeSet].sort();
-      console.log(`[slots] ${d} empId=${employeeId ?? "union"} → ${times.length} slots: ${times.join(", ")}`);
+      const first = times[0];
+      const last = times[times.length - 1];
+      console.log(`[slots] ${d} empId=${employeeId ?? "union"} total=${times.length} first=${first} last=${last}`);
+      console.log(`[slots] ${d} all: ${times.join(", ")}`);
       return times.map(time => ({ date: d, time }));
     }
   }

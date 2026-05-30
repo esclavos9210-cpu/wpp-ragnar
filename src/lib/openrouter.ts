@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { scheduleAppointment, getServices, getAvailableSlots, getEmployees, searchCustomerByPhone, normalizePhone, getCustomerBookings, cancelBooking, getBookingById } from "./barberly";
+import { scheduleAppointment, getServices, getAvailableSlots, getEmployees, searchCustomerByPhone, normalizePhone, getCustomerBookings, cancelBooking, getBookingById, getLocationSettings, getServiceDetails } from "./barberly";
 import { getSystemPrompt } from "./system-prompt";
 import { getCustomerMappingByWhatsApp, getCustomerMappingByPhone, upsertCustomerMapping, setLastAppointmentId } from "./db";
 
@@ -338,6 +338,9 @@ export async function getChatResponse(
           if (!svcMatch) {
             result = `Servicio "${args.service_name}" no encontrado. Servicios disponibles: ${svcs.map((s) => s.Name).join(", ")}`;
           } else {
+            // Probes en background — solo loggea, no afecta el flujo del cliente
+            void getLocationSettings().catch(() => null);
+            void getServiceDetails(svcMatch.Id).catch(() => null);
             let empId: string | undefined;
             if (args.barbero) {
               const emps = await getEmployees();
@@ -394,24 +397,31 @@ export async function getChatResponse(
                 lines.push(`• ${date}: ${rangeStr}`);
               }
 
-              // Nota sobre hora solicitada
+              // Nota sobre hora solicitada — SIEMPRE intentar agendar a la hora pedida,
+              // sin importar si aparece en la lista de slots. Barberly decide.
               let extraNote = "";
               if (args.hora_solicitada) {
                 const reqInSlots = allSlotsList.includes(args.hora_solicitada);
                 if (reqInSlots) {
-                  extraNote = `\n\n✅ ${to12h(args.hora_solicitada)} SÍ está disponible. Procede a agendar.`;
+                  extraNote = `\n\n✅ ${to12h(args.hora_solicitada)} SÍ aparece como disponible. Procede a agendar_cita directamente.`;
                 } else {
-                  extraNote = `\n\n⚠️ ${to12h(args.hora_solicitada)} no aparece en los slots de la API pero puede ser agendable — intenta agendar_cita directamente a las ${args.hora_solicitada}. Si Barberly rechaza, ofrece los rangos listados arriba.`;
+                  extraNote = `\n\n⚠️ ${to12h(args.hora_solicitada)} no aparece en los slots devueltos por la API, pero la API a veces sub-reporta. INTENTA agendar_cita directamente a las ${args.hora_solicitada}. Solo si Barberly responde con error, ofrece los rangos listados arriba.`;
                 }
               }
+
+              // Etiqueta de barbero si se filtró por uno específico
+              const barberLabel = args.barbero ? ` (${args.barbero})` : "";
 
               // Primer y último slot exactos — crítico para que el LLM responda correctamente
               // cuando el cliente pregunta por horas fuera del rango (ej: "¿tienes a las 8pm?")
               const firstSlot = to12h(allSlotsList[0]);
               const lastSlot = to12h(allSlotsList[allSlotsList.length - 1]);
-              const slotSummary = `\nPRIMER slot disponible: ${firstSlot}. ÚLTIMO slot disponible: ${lastSlot}.`;
-              const rangeInstruction = `\nCualquier hora dentro de estos rangos es válida (en intervalos de 15 min). Al agendar usa formato 24h (ej: 4:00 pm → 16:00). Si el cliente pide una hora FUERA de estos rangos, dile que no hay disponibilidad y muéstrale el primer/último horario exacto.`;
-              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}${slotSummary}${rangeInstruction}${extraNote}`;
+              const totalSlots = allSlotsList.length;
+
+              const summary = `\n\nPRIMER slot: ${firstSlot}. ÚLTIMO slot: ${lastSlot}.\nTotal: ${totalSlots} horarios disponibles.`;
+              const instruction = `\n\nReglas para el LLM:\n1. Si el cliente pide una hora específica (ej: "8pm"), SIEMPRE intenta agendar_cita directamente a esa hora en formato 24h. Barberly confirmará o rechazará. Solo di "no disponible" si Barberly RECHAZA el intento de agendar.\n2. NO uses la lista de slots para descartar horas — la API puede sub-reportar.\n3. Al mostrar el último slot al cliente, di la hora EXACTA (ej: "el último horario es 7:45 pm"), NO la redondees a 7 pm.\n4. Al agendar usa formato 24h (ej: 7:45 pm → 19:45, 8:00 pm → 20:00, 4 pm → 16:00).`;
+
+              result = `Horarios disponibles para "${svcMatch.Name}"${barberLabel}:\n${lines.join("\n")}${summary}${instruction}${extraNote}`;
             }
           }
         }
