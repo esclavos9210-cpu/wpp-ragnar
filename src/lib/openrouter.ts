@@ -405,9 +405,13 @@ export async function getChatResponse(
                 }
               }
 
-              // Instrucción general: cliente puede pedir cualquier hora dentro de los rangos
-              const rangeInstruction = `\nCualquier hora dentro de estos rangos es válida para agendar (en intervalos de 15 min). Al agendar usa formato 24h (ej: 4:00 pm → 16:00). Si el cliente pide una hora específica no listada, intenta agendar_cita directamente — Barberly decidirá si es válida.`;
-              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}${rangeInstruction}${extraNote}`;
+              // Primer y último slot exactos — crítico para que el LLM responda correctamente
+              // cuando el cliente pregunta por horas fuera del rango (ej: "¿tienes a las 8pm?")
+              const firstSlot = to12h(allSlotsList[0]);
+              const lastSlot = to12h(allSlotsList[allSlotsList.length - 1]);
+              const slotSummary = `\nPRIMER slot disponible: ${firstSlot}. ÚLTIMO slot disponible: ${lastSlot}.`;
+              const rangeInstruction = `\nCualquier hora dentro de estos rangos es válida (en intervalos de 15 min). Al agendar usa formato 24h (ej: 4:00 pm → 16:00). Si el cliente pide una hora FUERA de estos rangos, dile que no hay disponibilidad y muéstrale el primer/último horario exacto.`;
+              result = `Horarios disponibles para "${svcMatch.Name}":\n${lines.join("\n")}${slotSummary}${rangeInstruction}${extraNote}`;
             }
           }
         }
