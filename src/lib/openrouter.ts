@@ -158,6 +158,9 @@ export async function getChatResponse(
 
   let agendarCitaCalled = false;
   let cancelarCitaCalled = false;
+  // Se activa cuando mostramos lista de TODOS los barberos disponibles en un turno.
+  // Bloquea agendar_cita en ese mismo turno para forzar al LLM a esperar la elección del cliente.
+  let justShowedAllBarberList = false;
 
   // Loop de tool calls (máximo 8 iteraciones — flujos complejos: timeout-retry + buscar + disponibilidad + agendar + responder)
   for (let i = 0; i < 8; i++) {
@@ -417,7 +420,8 @@ export async function getChatResponse(
               } else {
                 result = `Barberos disponibles a las ${timeStr} para "${svcMatch.Name}" el ${args.fecha}:\n` +
                   availableEmps.map(n => `• ${n}`).join("\n") +
-                  `\n\nMuestra esta lista al cliente y espera que elija un barbero.`;
+                  `\n\nMuestra esta lista al cliente y espera que elija un barbero. NO llames agendar_cita hasta que el cliente elija explícitamente.`;
+                justShowedAllBarberList = true;
               }
               toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
               continue;
@@ -488,6 +492,14 @@ export async function getChatResponse(
         }
 
         else if (toolCall.function.name === "agendar_cita") {
+          // Bloquear si en este mismo turno acabamos de mostrar la lista de barberos disponibles:
+          // el cliente aún no ha elegido, no se puede agendar.
+          if (justShowedAllBarberList && (!args.barbero || args.barbero.trim() === "")) {
+            agendarCitaCalled = true;
+            result = `ERROR CRÍTICO: Acabas de mostrar la lista de barberos disponibles. El cliente NO ha elegido ninguno todavía. Envía la lista al cliente ahora mismo y espera su respuesta. NO llames agendar_cita.`;
+            toolResults.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+            continue;
+          }
           // Bloquear si no se especificó un barbero — el cliente debe elegirlo explícitamente.
           if (!args.barbero || args.barbero.trim() === "") {
             agendarCitaCalled = true;
@@ -639,8 +651,14 @@ export async function getChatResponse(
           }
         }
       } catch (err) {
-        console.error(`[openrouter] error en ${toolCall.function.name}:`, err);
-        result = `Error ejecutando ${toolCall.function.name}: ${err instanceof Error ? err.message : String(err)}`;
+        const isAbort = err instanceof DOMException && err.name === "AbortError";
+        if (isAbort && toolCall.function.name === "buscar_cliente") {
+          console.warn(`[openrouter] buscar_cliente timeout — tratando como cliente nuevo`);
+          result = `No se pudo verificar si el cliente existe (timeout de red). Trata como cliente NUEVO: pide nombre completo y correo en UN solo mensaje.`;
+        } else {
+          console.error(`[openrouter] error en ${toolCall.function.name}:`, err);
+          result = `Error ejecutando ${toolCall.function.name}: ${err instanceof Error ? err.message : String(err)}`;
+        }
       }
 
       toolResults.push({

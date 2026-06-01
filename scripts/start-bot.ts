@@ -11,6 +11,14 @@ import { getRestartRequested, setRestartRequested } from "../src/lib/db";
 
 console.log("[bot] Iniciando agente WhatsApp…");
 
+// Cierre limpio ante SIGTERM (Docker stop) o SIGINT (Ctrl+C)
+const gracefulShutdown = (signal: string) => {
+  console.log(`[bot] ${signal} recibido — cerrando limpiamente…`);
+  process.exit(0);
+};
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
+
 // Drena el outbox cada 5 segundos (mensajes del dashboard)
 setInterval(() => { void drainOutbox(); }, 5_000);
 

@@ -26,6 +26,10 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT = 5;
 let _manualReconnect = false;
 
+// Cola por JID: serializa el procesamiento de mensajes del mismo contacto
+// para evitar respuestas dobles cuando dos mensajes llegan casi al mismo tiempo.
+const jidQueues = new Map<string, Promise<void>>();
+
 // Mapa LID → JID real (@s.whatsapp.net)
 // Se rellena desde contacts.upsert, contacts.update y messaging-history.set
 const lidToJid = new Map<string, string>();
@@ -264,11 +268,19 @@ async function connect(): Promise<void> {
   // ─── Mensajes entrantes ───────────────────────────────────────────────────
   // Solo procesar type=notify (mensajes en tiempo real).
   // type=append son mensajes históricos del sync inicial — ignorarlos.
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+  // Cada JID tiene su propia cola Promise para serializar el procesamiento
+  // y evitar respuestas dobles cuando dos mensajes llegan casi simultáneamente.
+  sock.ev.on("messages.upsert", ({ messages, type }) => {
     console.log(`[baileys] messages.upsert type=${type} count=${messages.length}`);
     if (type !== "notify") return;
     for (const msg of messages) {
-      await handleIncomingMessage(msg, sock!);
+      const jid = msg.key.remoteJid ?? "unknown";
+      const prev = jidQueues.get(jid) ?? Promise.resolve();
+      const next = prev
+        .then(() => handleIncomingMessage(msg, sock!))
+        .catch(err => console.error(`[baileys] error procesando ${jid}:`, err));
+      jidQueues.set(jid, next);
+      void next.finally(() => { if (jidQueues.get(jid) === next) jidQueues.delete(jid); });
     }
   });
 }
