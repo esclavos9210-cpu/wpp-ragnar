@@ -60,8 +60,11 @@ export async function getChatResponse(
     justShowedAllBarberList: false,
   };
 
-  // Loop de tool calls (máximo 8 iteraciones)
-  for (let i = 0; i < 8; i++) {
+  // Loop de tool calls (máximo 12 iteraciones)
+  // Reagendamiento necesita: listar_citas + consultar_disponibilidad +
+  // cancelar_cita + agendar_cita = 4 mínimo. Con retries llega a 6-8.
+  // 12 da margen suficiente sin riesgo de loop infinito.
+  for (let i = 0; i < 12; i++) {
     const choice = response.choices[0];
 
     if (choice.finish_reason !== "tool_calls") {

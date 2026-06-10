@@ -70,7 +70,6 @@ export async function handleConsultarDisponibilidad(
     return `No hay disponibilidad para "${svcMatch.Name}" el ${args.fecha}. Prueba otra fecha.`;
   }
 
-  const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
   const byDate = new Map<string, string[]>();
   for (const s of slots) {
     if (!byDate.has(s.date)) byDate.set(s.date, []);
@@ -84,22 +83,11 @@ export async function handleConsultarDisponibilidad(
     const sorted = [...times].sort();
     sorted.forEach((t) => allSlotsList.push(t));
 
-    const ranges: { start: string; end: string }[] = [];
-    let rangeStart = sorted[0];
-    let prev = sorted[0];
-    for (let k = 1; k < sorted.length; k++) {
-      if (toMin(sorted[k]) - toMin(prev) > 15) {
-        ranges.push({ start: rangeStart, end: prev });
-        rangeStart = sorted[k];
-      }
-      prev = sorted[k];
-    }
-    ranges.push({ start: rangeStart, end: prev });
-
-    const rangeStr = ranges
-      .map((r) => (r.start === r.end ? to12h(r.start) : `${to12h(r.start)} – ${to12h(r.end)}`))
-      .join(" | ");
-    lines.push(`• ${date}: ${rangeStr}`);
+    // Slots individuales — NO rangos.
+    // Los rangos confunden al LLM: interpreta que cualquier hora dentro
+    // del rango está disponible cuando solo existen los slots exactos.
+    const slotsStr = sorted.map((t) => to12h(t)).join(" | ");
+    lines.push(`• ${date}: ${slotsStr}`);
   }
 
   let extraNote = "";
