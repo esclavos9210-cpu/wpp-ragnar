@@ -22,8 +22,12 @@ async function getAllMembers(): Promise<BarbMember[]> {
   if (!res.ok) return [];
   const raw = (await res.json()) as BarbMember[] | { Items?: BarbMember[] };
   const data = Array.isArray(raw) ? raw : (raw.Items ?? []);
-  membersCache = { data, expiresAt: Date.now() + 5 * 60 * 1000 };
+  membersCache = { data, expiresAt: Date.now() + 2 * 60 * 1000 };
   return data;
+}
+
+export function invalidateMembersCache(): void {
+  membersCache = null;
 }
 
 export function normalizePhone(p: string): string {

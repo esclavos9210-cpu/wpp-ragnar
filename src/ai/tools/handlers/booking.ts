@@ -45,6 +45,12 @@ export async function handleAgendarCita(
     return `ERROR: No se puede agendar sin que el cliente haya elegido un barbero específico. Pregúntale al cliente con cuál barbero quiere la cita y espera su respuesta antes de llamar agendar_cita.`;
   }
 
+  const telefono = args.telefono_cliente ?? ctx.clientPhone ?? "";
+  if (!telefono.trim()) {
+    ctx.agendarCitaCalled = true;
+    return `ERROR: No se puede agendar sin el teléfono del cliente. Pídele su número con código de país (ej: +573001234567) antes de llamar agendar_cita.`;
+  }
+
   if (args.hora) args.hora = parseHour24(args.hora);
 
   if (args.fecha && !/^\d{4}-\d{2}-\d{2}$/.test(args.fecha)) {

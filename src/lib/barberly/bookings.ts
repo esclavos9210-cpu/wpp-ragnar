@@ -1,6 +1,7 @@
 import { BASE_URL, LOCATION_ID, apiFetch, getToken, authHeaders } from "./http";
 import { getServices } from "./catalog";
-import { searchCustomerByPhone, createMember } from "./members";
+import { searchCustomerByPhone, createMember, invalidateMembersCache } from "./members";
+import { getAvailableSlots } from "./availability";
 
 export interface AppointmentParams {
   date: string;
@@ -95,6 +96,19 @@ export async function scheduleAppointment(params: AppointmentParams): Promise<Ap
       },
     };
 
+    // REVALIDACIÓN: verificar que el slot sigue disponible justo antes de crear
+    const freshSlots = await getAvailableSlots(params.serviceId, params.date, params.employeeId);
+    const slotStillAvailable = freshSlots.some(
+      (s) => s.date === params.date && s.time === params.time,
+    );
+    if (!slotStillAvailable) {
+      console.warn(`[appointment-revalidate] slot ${params.time} ${params.date} emp=${params.employeeId ?? "auto"} ya no disponible`);
+      return {
+        success: false,
+        message: `El horario ${params.time} del ${params.date} ya no está disponible. Por favor elige otro horario.`,
+      };
+    }
+
     const res = await apiFetch(`${BASE_URL}/api/bookings`, {
       method: "POST",
       headers: authHeaders(token),
@@ -116,6 +130,8 @@ export async function scheduleAppointment(params: AppointmentParams): Promise<Ap
       try { await cancelBooking(data.Id); } catch (e) { console.error("[appointment-mismatch] error cancelando:", e); }
       return { success: false, message: `El barbero solicitado no tiene disponibilidad en ese horario. Por favor elige otro horario.` };
     }
+
+    invalidateMembersCache();
 
     return {
       success: true,

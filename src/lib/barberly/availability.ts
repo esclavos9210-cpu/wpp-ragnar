@@ -14,6 +14,78 @@ function addDays(date: string, days: number): string {
   return d.toISOString().split("T")[0];
 }
 
+interface BlockedRange {
+  start: number; // minutos del día
+  end: number;
+}
+
+function isoToMinutes(iso: string): number | null {
+  const time = iso.split("T")[1]?.substring(0, 5);
+  if (!time) return null;
+  const [h, m] = time.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function parseBlockedRanges(raw: unknown): BlockedRange[] {
+  const items: unknown[] = Array.isArray(raw)
+    ? raw
+    : Array.isArray((raw as { Items?: unknown[] })?.Items)
+      ? (raw as { Items: unknown[] }).Items
+      : [];
+  const ranges: BlockedRange[] = [];
+  for (const it of items) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as Record<string, unknown>;
+    // Forma A: TimeSlot anidado { StartMinutesOfDay, DurationMinutes }
+    const ts = (o.TimeSlot ?? o) as Record<string, unknown>;
+    if (typeof ts.StartMinutesOfDay === "number") {
+      const start = ts.StartMinutesOfDay;
+      const dur = typeof ts.DurationMinutes === "number" ? ts.DurationMinutes : 0;
+      ranges.push({ start, end: start + dur });
+      continue;
+    }
+    // Forma B: { From, To } como ISO strings
+    if (typeof o.From === "string") {
+      const start = isoToMinutes(o.From);
+      const end = typeof o.To === "string" ? isoToMinutes(o.To) : null;
+      if (start !== null) ranges.push({ start, end: end ?? start + 24 * 60 });
+      continue;
+    }
+    // Forma C: { Start, End } en minutos
+    if (typeof o.Start === "number") {
+      ranges.push({ start: o.Start, end: typeof o.End === "number" ? o.End : o.Start + 24 * 60 });
+    }
+  }
+  return ranges;
+}
+
+/**
+ * Consulta bloqueos / días libres del barbero para una fecha concreta.
+ * Retorna array de rangos en minutos, o null si ningún endpoint respondió 200
+ * (para distinguir "sin bloqueos" de "no se pudo consultar").
+ */
+async function getBlockedMinutes(employeeId: string, date: string): Promise<BlockedRange[] | null> {
+  const token = await getToken();
+  const candidates = [
+    `${BASE_URL}/api/blockings?locationId=${LOCATION_ID}&employeeId=${employeeId}&date=${date}`,
+    `${BASE_URL}/api/blockings/location/${LOCATION_ID}?date=${date}&employeeId=${employeeId}`,
+    `${BASE_URL}/api/employees/${employeeId}/blockings?date=${date}`,
+  ];
+  for (const url of candidates) {
+    try {
+      const res = await apiFetch(url, { headers: authHeaders(token) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      console.log(`[blockings] OK endpoint=${url}`);
+      return parseBlockedRanges(data);
+    } catch {
+      // probar siguiente candidato
+    }
+  }
+  return null;
+}
+
 export async function getAvailableSlots(
   serviceId: string,
   requestedDate: string,
@@ -108,6 +180,22 @@ export async function getAvailableSlots(
       }
       const times = extractTimesForDay(r.value, d, label);
       for (const t of times) timeSet.add(t);
+    }
+
+    if (timeSet.size > 0 && employeeId) {
+      const blocked = await getBlockedMinutes(employeeId, d);
+      if (blocked === null) {
+        console.warn(`[slots] no se pudo verificar bloqueos para ${d} emp=${employeeId}`);
+      } else if (blocked.length > 0) {
+        for (const time of [...timeSet]) {
+          const [h, m] = time.split(":").map(Number);
+          const minutes = h * 60 + m;
+          if (blocked.some((b) => minutes >= b.start && minutes < b.end)) {
+            timeSet.delete(time);
+            console.log(`[slots] ${d} emp=${employeeId} slot ${time} bloqueado → removido`);
+          }
+        }
+      }
     }
 
     if (timeSet.size > 0) {

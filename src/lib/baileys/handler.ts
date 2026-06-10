@@ -13,9 +13,27 @@ import {
   getPendingOutbox,
   markOutboxSent,
 } from "../db";
+import type { Message } from "../db";
 import { getChatResponse } from "../openrouter";
 
-const HISTORY_LIMIT = 20;
+const HISTORY_LIMIT = 40;
+
+/** Extrae datos clave de mensajes antiguos que el LLM podría olvidar. */
+function extractConversationContext(messages: Message[]): string | null {
+  const fullText = messages.map((m) => m.content).join(" ").toLowerCase();
+  const contextClues: string[] = [];
+
+  const nameMatch = fullText.match(/(?:me llamo|soy|mi nombre es)\s+([a-záéíóúñ]+)/i);
+  if (nameMatch) contextClues.push(`Cliente se identificó como: ${nameMatch[1]}`);
+
+  if (fullText.includes("corte") && fullText.includes("barba")) contextClues.push("Servicio mencionado: corte y barba");
+  else if (fullText.includes("corte")) contextClues.push("Servicio mencionado: corte");
+  else if (fullText.includes("barba")) contextClues.push("Servicio mencionado: barba");
+
+  return contextClues.length > 0
+    ? `[Contexto de la conversación: ${contextClues.join(". ")}]`
+    : null;
+}
 
 /** Procesa un mensaje entrante de WhatsApp. */
 export async function handleIncomingMessage(
@@ -102,6 +120,15 @@ export async function handleIncomingMessage(
       role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
       content: m.content,
     }));
+
+  // Si hay mensajes más antiguos que no caben en el límite, inyectar contexto extraído
+  if (rawHistory.length >= HISTORY_LIMIT) {
+    const olderMessages = getRecentMessages.all({ conversation_id: dbJid, limit: 80 });
+    const context = extractConversationContext(olderMessages);
+    if (context) {
+      history.unshift({ role: "user" as const, content: context });
+    }
+  }
 
   let response: string | null = null;
 

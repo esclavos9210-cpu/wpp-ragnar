@@ -95,7 +95,7 @@ export const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "agendar_cita",
       description:
-        "Agenda una cita. Llámala INMEDIATAMENTE cuando el cliente confirme. NUNCA digas 'Cita confirmada' sin llamarla. Si el cliente pidió un barbero específico, DEBES incluir el campo 'barbero'.",
+        "Agenda una cita en Barbería Ragnar. SOLO llamar después de que el cliente haya confirmado explícitamente barbero, horario y teléfono. NUNCA digas 'Cita confirmada' sin llamarla. El campo 'barbero' es OBLIGATORIO: el cliente debe haber elegido un barbero específico.",
       parameters: {
         type: "object",
         properties: {
@@ -104,11 +104,11 @@ export const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           service_name: { type: "string", description: "Nombre del servicio confirmado" },
           nombre_cliente: { type: "string", description: "Nombre del cliente" },
           apellido_cliente: { type: "string", description: "Apellido del cliente (opcional)" },
-          telefono_cliente: { type: "string", description: "Teléfono con código de país ej: +573001234567" },
+          telefono_cliente: { type: "string", description: "Teléfono con código de país ej: +573001234567. OBLIGATORIO." },
           email_cliente: { type: "string", description: "Correo electrónico del cliente" },
-          barbero: { type: "string", description: "Nombre del barbero preferido (opcional)" },
+          barbero: { type: "string", description: "Nombre del barbero elegido por el cliente (de consultar_barberos o consultar_disponibilidad). OBLIGATORIO." },
         },
-        required: ["fecha", "hora", "service_name", "nombre_cliente", "telefono_cliente"],
+        required: ["fecha", "hora", "service_name", "nombre_cliente", "telefono_cliente", "barbero"],
       },
     },
   },
